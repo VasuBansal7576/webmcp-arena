@@ -1,0 +1,77 @@
+import { createServer } from "node:http";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { scanUrl } from "../src/scanner.js";
+import { writeFixPack } from "../src/fixpack.js";
+
+test("writeFixPack exports reviewable files for missing llms, jsonld, and weak OpenAPI", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-contract-fixpack-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+
+  const server = createServer((request, response) => {
+    const path = new URL(request.url, "http://127.0.0.1").pathname;
+    const send = (status, body, type = "text/plain") => {
+      response.writeHead(status, { "content-type": type });
+      response.end(body);
+    };
+    if (path === "/") return send(200, home(), "text/html");
+    if (path === "/openapi.json") return send(200, JSON.stringify(openapi()), "application/json");
+    if (path === "/robots.txt") return send(200, "User-agent: *\nAllow: /\n");
+    if (path === "/sitemap.xml") return send(200, "<urlset><url><loc>/</loc></url></urlset>", "application/xml");
+    if (path === "/llms.txt") return send(404, "missing");
+    return send(404, "missing");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(() => resolve())));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const scan = await scanUrl(`${baseUrl}/`, { openapi: `${baseUrl}/openapi.json` });
+  const manifest = await writeFixPack(join(dir, "fix-pack"), { scan });
+
+  assert.deepEqual(manifest.files.sort(), [
+    "README.md",
+    "llms.txt",
+    "openapi-patches.json",
+    "problem-details-example.json",
+    "schema-org.jsonld",
+  ].sort());
+
+  const llms = await readFile(join(dir, "fix-pack", "llms.txt"), "utf8");
+  const jsonld = JSON.parse(await readFile(join(dir, "fix-pack", "schema-org.jsonld"), "utf8"));
+  const patches = JSON.parse(await readFile(join(dir, "fix-pack", "openapi-patches.json"), "utf8"));
+  const problem = JSON.parse(await readFile(join(dir, "fix-pack", "problem-details-example.json"), "utf8"));
+
+  assert.match(llms, /Agent Contract OS creates contracts/i);
+  assert.equal(jsonld["@type"], "SoftwareApplication");
+  assert.ok(patches.patches.some((patch) => patch.op === "add_examples"));
+  assert.ok(patches.patches.some((patch) => patch.op === "add_error_responses"));
+  assert.ok(patches.patches.some((patch) => patch.op === "add_security_schemes"));
+  assert.equal(problem.type, "https://example.com/problems/agent-contract-error");
+});
+
+function home() {
+  return `<!doctype html><html><body>
+    <h1>Agent Contract OS</h1>
+    <p>Agent Contract OS creates contracts for autonomous agents so websites can publish docs, API expectations, and policy boundaries.</p>
+  </body></html>`;
+}
+
+function openapi() {
+  return {
+    openapi: "3.1.0",
+    info: { title: "Weak API", version: "1.0.0" },
+    paths: {
+      "/contracts": {
+        get: {
+          responses: {
+            200: { description: "OK" },
+          },
+        },
+      },
+    },
+  };
+}
