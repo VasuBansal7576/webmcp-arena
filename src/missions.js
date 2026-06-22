@@ -94,7 +94,14 @@ async function findPricing(page, url, mission, runtime) {
   await goto(page, url, evidence);
   const link = await findLink(page, /pricing|plans|packages/i);
   if (link?.href) await goto(page, link.href, evidence);
-  const snapshot = await pageSnapshot(page);
+  const snapshot = await prunedPricingSnapshot(page);
+  evidence.push({
+    type: "prune4web",
+    ok: true,
+    selector_program: snapshot.selector_program,
+    textLength: snapshot.textLength,
+    tokens: estimateTokens(snapshot.text),
+  });
   const pricePattern = /(?:free|\$[0-9][0-9,]*(?:\.\d{2})?(?:\s*(?:\/|per)\s*(?:mo|month|repo|year))?)/i;
   const prices = snapshot.text.split(/\n+/).map((line) => line.trim()).filter((line) => pricePattern.test(line));
   const summary = prices.length ? prices.slice(0, 6).join("; ") : "No pricing text found in browser-readable page content.";
@@ -143,6 +150,32 @@ async function pageSnapshot(page) {
   };
 }
 
+async function prunedPricingSnapshot(page) {
+  const title = await page.title();
+  const selectorProgram = [
+    "h1,h2,h3,p,li,section,article,tr,td,th,a,button,[role='button'],[role='link']",
+    "text~=(free|pricing|price|plan|startup|enterprise|solo|$)",
+  ];
+  const text = await page.locator("body").evaluate((body) => {
+    const pattern = /(?:free|pricing|price|plan|startup|enterprise|solo|\$[0-9])/i;
+    const selector = "h1,h2,h3,p,li,section,article,tr,td,th,a,button,[role='button'],[role='link']";
+    const lines = [...body.querySelectorAll(selector)]
+      .map((node) => (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim())
+      .filter((line, index, all) => line && pattern.test(line) && all.indexOf(line) === index)
+      .slice(0, 24);
+    return lines.join("\n");
+  }).catch(() => "");
+
+  if (!text) return pageSnapshot(page);
+  return {
+    title,
+    representation: "prune4web",
+    selector_program: selectorProgram,
+    text: text.slice(0, 12000),
+    textLength: text.length,
+  };
+}
+
 async function accessibilityText(page) {
   const session = await page.context().newCDPSession(page);
   try {
@@ -160,6 +193,7 @@ function missionResult(mission, status, summary, snapshot, evidence) {
     status,
     summary,
     token_strategy: snapshot.representation,
+    selector_program: snapshot.selector_program || null,
     tokens_consumed: tokens,
     max_tokens: mission.maxTokens,
     evidence,

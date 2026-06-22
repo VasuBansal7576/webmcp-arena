@@ -24,11 +24,11 @@ The gate defaults to `report` mode. Use `--mode blocking` only after calibration
 ## What Exists
 
 - NGINX and CloudFront access-log parsing for ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended.
-- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
+- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
 - Portable `.agent/` output with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, and evidence snapshots.
 - HTML/Markdown/JSON reports and OTLP JSON payloads with `gen_ai.*` attributes.
 - Composite GitHub Action wrapper with optional Markdown PR comments and scheduled workflow support.
-- Real browser synthetic missions for the plan's first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots and AXTree/token evidence.
+- Real browser synthetic missions for the plan's first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots, AXTree evidence, deterministic Prune4Web-style pricing slices, and token evidence.
 - Diff-based monitoring: stores page hashes, skips unchanged pages, and reruns only affected missions.
 - MCP manifest audits flag destructive, payment, command-execution, and write-side-effect tools unless they carry an explicit human-approval annotation.
 - Fix pack export: writes reviewable `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem details examples.
@@ -50,3 +50,7 @@ Auth profile values must reference env vars:
 ```
 
 Remote PR creation is opt-in and gated with explicit confirmation. Publishing is verified locally with `npm run release:check`.
+
+## Not Proven By This Repo
+
+The local CLI does not prove market validation steps from `plan_final.md`: customer log access, 5 company pilots, McGill/Mila acknowledgement, real-site audit corpus, LOIs, domain ownership, public package publication, GitHub stars, or public standard adoption. Track those as external proof, not code proof.

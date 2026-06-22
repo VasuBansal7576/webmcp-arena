@@ -15,6 +15,7 @@ Owns the current production MVP:
 - Review-gated PR prep that applies fix packs to a real git branch before any remote PR action.
 - Enterprise policy pack and audit report over `.agent/contract.json`.
 - Private runner auth profiles with env-backed secrets and redacted evidence.
+- First three browser-backed missions with AXTree evidence, deterministic Prune4Web-style pricing slices, and shared cache reuse.
 
 Proof:
 
@@ -29,12 +30,12 @@ node ./bin/agent-contract.js gate http://127.0.0.1:PORT --mode report --report r
 - GitHub Action wrapper.
 - Hosted docs for the `.agent/` contract schema.
 
-## PR 3: Synthetic Missions
+## PR 3: Synthetic Missions Hardening
 
-Only after PR 1 has real users:
+After PR 1 has real users:
 
-- AXTree mission runner.
-- Prune4Web selector generation.
-- Shared mission cache.
+- Run the first three missions against the 10-site evidence corpus from `plan_final.md`.
+- Replace deterministic pricing pruning with LLM-generated selector programs only if the corpus proves it is needed.
+- Add broader mission coverage after the first three stay reliable.
 
-Skipped for now: checkout/signup missions and auto-PRs. The plan explicitly pushes both later.
+Skipped for now: checkout/signup missions, unreviewed auto-PRs, public adoption claims, customer pilots, and LOI proof. The plan explicitly pushes or externalizes those.

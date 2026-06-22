@@ -32,6 +32,22 @@ test("analyzeHtml detects JS-only pages, JSON-LD, cookie blockers, and links", (
   assert.deepEqual(page.links, ["https://example.test/docs", "https://api.example.test/spec"]);
 });
 
+test("analyzeHtml detects WebArena-style interaction risks", () => {
+  const html = `<!doctype html>
+    <html><body>
+      <input type="range" aria-valuenow="40">
+      <button role="switch" aria-checked="false">Annual billing</button>
+      <table><caption>Usage table</caption><tr><th>Filter by plan</th></tr></table>
+      <div data-variant="pricing-b">Experiment branch</div>
+    </body></html>`;
+
+  const page = analyzeHtml(html);
+
+  assert.equal(page.hasSliderSwitchRisk, true);
+  assert.equal(page.hasDatagridRisk, true);
+  assert.equal(page.hasAbVariantRisk, true);
+});
+
 test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON", async (t) => {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, "http://127.0.0.1").pathname;
@@ -109,6 +125,9 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(checks.json_ld.pass, true);
   assert.equal(checks.js_only_content.pass, true);
   assert.equal(checks.cookie_modal.pass, true);
+  assert.equal(checks.slider_switch_interactions.pass, true);
+  assert.equal(checks.datagrid_filtering.pass, true);
+  assert.equal(checks.ab_test_variants.pass, true);
   assert.equal(checks.broken_links.pass, false);
   assert.equal(checks.openapi_descriptions.pass, true);
   assert.equal(checks.openapi_examples.pass, true);

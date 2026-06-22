@@ -26,6 +26,9 @@ export async function scanUrl(input, options = {}) {
     check("json_ld", page.hasJsonLd, page.hasJsonLd ? "JSON-LD found" : "No JSON-LD/schema.org block found", "medium"),
     check("js_only_content", !page.looksJsOnly, page.looksJsOnly ? "Page has low readable HTML and relies on scripts" : "Readable HTML present", "critical"),
     check("cookie_modal", !page.hasCookieBlocker, page.hasCookieBlocker ? "Cookie/consent blocker text detected" : "No obvious cookie blocker text detected", "medium"),
+    check("slider_switch_interactions", !page.hasSliderSwitchRisk, page.hasSliderSwitchRisk ? "Slider/switch controls detected; verify keyboard and ARIA behavior for agents" : "No obvious slider/switch controls detected", "low"),
+    check("datagrid_filtering", !page.hasDatagridRisk, page.hasDatagridRisk ? "Datagrid or filterable table detected; verify filtering is represented in accessible controls" : "No obvious datagrid filtering surface detected", "low"),
+    check("ab_test_variants", !page.hasAbVariantRisk, page.hasAbVariantRisk ? "A/B or experiment variant markers detected; run missions against stable variants" : "No obvious A/B variant markers detected", "low"),
     check("broken_links", links.broken.length === 0, links.broken.length ? `${links.broken.length} sampled links failed` : "Sampled links reachable", "high"),
     ...openApiChecks(openapi),
     ...mcpChecks(mcp),
@@ -103,6 +106,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid")) {
   const withoutScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const bodyText = decodeEntities(withoutScripts.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   const scriptCount = (html.match(/<script\b/gi) || []).length;
+  const lowerHtml = html.toLowerCase();
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
@@ -119,6 +123,9 @@ export function analyzeHtml(html, url = new URL("https://example.invalid")) {
     scriptCount,
     hasJsonLd: /<script[^>]+type=["']application\/ld\+json["']/i.test(html),
     hasCookieBlocker: /\b(cookie|consent|gdpr|privacy preferences)\b/i.test(bodyText) && /\b(accept|reject|manage)\b/i.test(bodyText),
+    hasSliderSwitchRisk: /(?:role|type)=["'](?:slider|switch|range)["']|aria-valuenow|class=["'][^"']*(?:slider|switch|toggle)|data-(?:slider|switch|toggle)/i.test(html),
+    hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
+    hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
     looksJsOnly: bodyText.length < 300 && scriptCount > 3,
     links: [...new Set(links)].slice(0, 100),
     sampleText: bodyText.slice(0, 500),

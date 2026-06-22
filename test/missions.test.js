@@ -38,9 +38,16 @@ test("runSyntheticMissions executes phase-one missions in a real browser and reu
 
   assert.equal(first.tested, 3);
   assert.equal(first.failed, 0);
-  assert.equal(first.results.every((item) => item.token_strategy === "a11y_tree"), true);
-  assert.equal(first.results.find((item) => item.mission === "find_pricing").status, "passed");
-  assert.match(first.results.find((item) => item.mission === "find_pricing").summary, /Startup \$49/i);
+  const pricingResult = first.results.find((item) => item.mission === "find_pricing");
+  assert.equal(first.results.find((item) => item.mission === "understand_company").token_strategy, "a11y_tree");
+  assert.equal(pricingResult.token_strategy, "prune4web");
+  assert.deepEqual(pricingResult.selector_program, [
+    "h1,h2,h3,p,li,section,article,tr,td,th,a,button,[role='button'],[role='link']",
+    "text~=(free|pricing|price|plan|startup|enterprise|solo|$)",
+  ]);
+  assert.ok(pricingResult.evidence.some((item) => item.type === "prune4web" && item.tokens < 50));
+  assert.equal(pricingResult.status, "passed");
+  assert.match(pricingResult.summary, /Startup \$49/i);
   assert.match(first.results.find((item) => item.mission === "find_api_quickstart").summary, /GET \/v1\/contracts/i);
   assert.equal(first.results.some((item) => item.cached), false);
   assert.equal(first.results.every((item) => item.screenshot_path?.endsWith(".png")), true);
