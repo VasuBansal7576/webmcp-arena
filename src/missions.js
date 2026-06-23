@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { readText, sha256, writeJson } from "./util.js";
 
+export const MISSION_PRIMITIVES = ["navigate", "wait", "click", "type", "select", "extract"];
+
 export const PHASE_ONE_MISSIONS = [
   { id: "understand_company", maxTokens: 2000 },
   { id: "find_pricing", maxTokens: 1500 },
@@ -64,6 +66,35 @@ export async function runSyntheticMissions(inputUrl, options = {}) {
     failed: results.filter((item) => item.status !== "passed").length,
     auth_profile: options.auth?.audit || null,
     results,
+  };
+}
+
+export async function validateMissionFile(path) {
+  try {
+    return validateMissionPrimitives(await readText(path), path);
+  } catch (error) {
+    return {
+      source: path,
+      valid: false,
+      primitive_count: 0,
+      allowed_primitives: MISSION_PRIMITIVES,
+      invalid_primitives: [{ primitive: "missing_file", message: error.message }],
+    };
+  }
+}
+
+export function validateMissionPrimitives(text, source = "missions.yml") {
+  const allowed = new Set(MISSION_PRIMITIVES);
+  const primitives = [...String(text || "").matchAll(/\bprimitive:\s*["']?([a-z_-]+)["']?/gi)].map((match) => match[1].toLowerCase());
+  const invalid = primitives
+    .map((primitive, index) => ({ primitive, index }))
+    .filter((item) => !allowed.has(item.primitive));
+  return {
+    source,
+    valid: invalid.length === 0,
+    primitive_count: primitives.length,
+    allowed_primitives: MISSION_PRIMITIVES,
+    invalid_primitives: invalid,
   };
 }
 

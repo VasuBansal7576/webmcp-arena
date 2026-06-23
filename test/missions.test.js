@@ -5,7 +5,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runSyntheticMissions } from "../src/missions.js";
+import { runSyntheticMissions, validateMissionPrimitives } from "../src/missions.js";
 
 const chromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -112,6 +112,29 @@ test("runSyntheticMissions rejects unknown mission ids", async (t) => {
     }),
     /Unknown mission id\(s\): does_not_exist/,
   );
+});
+
+test("validateMissionPrimitives rejects invented web actions", () => {
+  const valid = validateMissionPrimitives(`
+missions:
+  - id: find_pricing
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: click, target: "pricing_link" }
+      - { primitive: extract, target: "pricing_tiers" }
+`);
+  const invalid = validateMissionPrimitives(`
+missions:
+  - id: buy_item
+    steps:
+      - { primitive: solve_captcha, target: "checkout" }
+`);
+
+  assert.equal(valid.valid, true);
+  assert.equal(valid.primitive_count, 4);
+  assert.equal(invalid.valid, false);
+  assert.deepEqual(invalid.invalid_primitives.map((item) => item.primitive), ["solve_captcha"]);
 });
 
 function home() {

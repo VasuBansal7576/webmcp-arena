@@ -3,7 +3,7 @@ import { scanUrl } from "./scanner.js";
 import { writeAgentFolder } from "./contract.js";
 import { buildReport, renderHtml, renderMarkdown } from "./report.js";
 import { buildOtlpTrace, sendTelemetry, writeTelemetry } from "./telemetry.js";
-import { runSyntheticMissions } from "./missions.js";
+import { runSyntheticMissions, validateMissionFile } from "./missions.js";
 import { runMonitor } from "./monitor.js";
 import { writeFixPack } from "./fixpack.js";
 import { writeLlmFixExplanation } from "./llmfix.js";
@@ -156,41 +156,47 @@ async function gateCommand(argv) {
   const contractDir = flags.contractDir || ".agent";
   const missionReport = flags.missions ? await runSyntheticMissions(url, missionOptions(flags, scan, contractDir, options.auth)) : null;
   await writeAgentFolder(contractDir, { scan, logReport, missionReport });
+  const missionValidation = await validateMissionFile(`${contractDir.replace(/\/$/, "")}/missions.yml`);
 
   const report = buildReport({ scan, logReport, missionReport, contractDir });
   if (flags.report) await writeText(flags.report, renderHtml(report));
   if (flags.markdown) await writeText(flags.markdown, renderMarkdown(report));
   if (flags.jsonOut) await writeJson(flags.jsonOut, report);
 
-  const status = gateStatus(scan, logReport, missionReport, number(flags.minScore, 70));
+  const status = gateStatus(scan, logReport, missionReport, missionValidation, number(flags.minScore, 70));
   const telemetry = buildOtlpTrace({ command: "gate", scan, logReport, missionReport, status: status.ok ? "ok" : "failed" });
   if (flags.otelFile) await writeTelemetry(flags.otelFile, telemetry);
   if (flags.otelEndpoint) await sendTelemetry(flags.otelEndpoint, telemetry);
 
   const verdict = mode === "report" ? "REPORT" : status.ok ? "PASS" : mode === "warning" ? "WARN" : "FAIL";
-  const line = `agent-contract gate: ${verdict} score=${scan.readiness.score} cup=${status.cup.status} findings=${status.findingCount} mode=${mode} contract=${contractDir}`;
+  const line = `agent-contract gate: ${verdict} score=${scan.readiness.score} cup=${status.cup.status} mission_defs=${missionValidation.valid ? "valid" : "failed"} findings=${status.findingCount} mode=${mode} contract=${contractDir}`;
   if (flags.json) console.log(JSON.stringify({ ...status, mode, score: scan.readiness.score, report }, null, 2));
   else console.log(line);
 
   if (mode === "blocking" && !status.ok) process.exitCode = 1;
 }
 
-function gateStatus(scan, logReport, missionReport, minScore) {
+function gateStatus(scan, logReport, missionReport, missionValidation, minScore) {
   const critical = [
     ...scan.checks.filter((item) => !item.pass && item.severity === "critical").map((item) => item.message),
     ...(logReport?.findings || []).filter((item) => item.severity === "critical").map((item) => item.message),
   ];
   const missionFailures = (missionReport?.results || []).filter((item) => item.status !== "passed").map((item) => item.summary);
+  const missionDefinitionFailures = missionValidation?.valid === false
+    ? missionValidation.invalid_primitives.map((item) => `Invalid mission primitive: ${item.primitive}`)
+    : [];
   const cupViolations = cupViolationsFor(scan, logReport, missionReport);
   const scoreOk = scan.readiness.score >= minScore;
   return {
-    ok: scoreOk && critical.length === 0 && missionFailures.length === 0 && cupViolations.length === 0,
+    ok: scoreOk && critical.length === 0 && missionFailures.length === 0 && missionDefinitionFailures.length === 0 && cupViolations.length === 0,
     minScore,
-    findingCount: scan.checks.filter((item) => !item.pass).length + (logReport?.findings?.length || 0) + missionFailures.length,
+    findingCount: scan.checks.filter((item) => !item.pass).length + (logReport?.findings?.length || 0) + missionFailures.length + missionDefinitionFailures.length,
     critical,
     missionFailures,
+    missionDefinitionFailures,
+    mission_definitions: missionValidation,
     cup: { status: cupViolations.length ? "failed" : "passed", violations: cupViolations },
-    reason: scoreOk ? critical[0] || missionFailures[0] || cupViolations[0]?.message || null : `score ${scan.readiness.score} below ${minScore}`,
+    reason: scoreOk ? critical[0] || missionFailures[0] || missionDefinitionFailures[0] || cupViolations[0]?.message || null : `score ${scan.readiness.score} below ${minScore}`,
   };
 }
 

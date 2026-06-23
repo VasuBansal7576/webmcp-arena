@@ -26,6 +26,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Browser-backed synthetic missions default to `understand_company`, `find_pricing`, and `find_api_quickstart`.
 - Opt-in standard missions include `create_first_api_request`, `find_refund_policy`, and `use_mcp_tool_if_available` via `--mission-ids`.
 - Mission evidence includes screenshots, AXTree text, token estimates, context-budget breakdowns, deterministic Prune4Web-style pricing slices, standalone pruning artifacts, and shared mission cache reuse.
+- Generated `missions.yml` includes primitive step decompositions, and `gate` validates mission primitives before returning CI status.
 - Diff-based monitor that hashes pages, skips unchanged pages, and reruns affected checks/missions.
 - Monitor state also tracks MCP tool-description hashes when an MCP manifest is supplied.
 - Fix pack export for `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem-details examples.
@@ -42,6 +43,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Repo scan for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
 - Local Solo web shell at `npm run solo`, built as a thin wrapper around the existing scanner and fix-pack path.
 - Local sourced positioning-post draft in `docs/positioning-post.md`.
+- `CONTRIBUTING.md` documents rendering-mode discipline: Layer 3 static checks stay simple-mode, while Playwright/screenshots stay in Layer 4 mission evidence.
 
 ## Proven Locally
 
@@ -61,6 +63,8 @@ npm pack --dry-run
 - Agent identity support is declaration detection only; it does not verify payment-network identity, DIDs, verifiable credentials, or liability shift.
 - Cost-at-scale is a token-load projection from observed logs and DOM token metrics; it is not provider billing proof.
 - OTel GenAI model/provider/token attributes are emitted only when explicitly supplied; the CLI does not fake model usage from DOM token estimates.
+- Mission primitive validation is static schema hygiene over `missions.yml`; it does not prove a mission can complete in a browser.
+- Rendering-mode discipline is documented and followed by current code paths; it is not enforced by a separate linter.
 - Smoke artifacts are local proof that the CLI paths run; they are not customer or production proof.
 
 ## Not Proven Here

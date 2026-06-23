@@ -109,6 +109,10 @@ missions:
     max_steps: 10
     max_tokens: 2000
     token_strategy: hybrid
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "company_summary" }
 
   - id: find_pricing
     description: "Find the pricing page and extract the pricing tiers"
@@ -117,6 +121,12 @@ missions:
     max_tokens: 1500
     token_strategy: prune4web
     critical: true
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: click, target: "pricing_link" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "pricing_tiers" }
 
   - id: find_api_quickstart
     description: "Find the API quickstart and identify the first request to make"
@@ -125,6 +135,12 @@ missions:
     max_tokens: 1200
     token_strategy: a11y_tree
     critical: true
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: click, target: "docs_or_api_link" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "first_api_request" }
 
   - id: create_first_api_request
     description: "Create the first API request from the docs alone"
@@ -132,6 +148,12 @@ missions:
     max_steps: 12
     max_tokens: 800
     token_strategy: openapi_or_a11y_tree
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: click, target: "docs_or_api_link" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "first_api_request" }
 
   - id: find_refund_policy
     description: "Find the refund or cancellation policy"
@@ -139,6 +161,12 @@ missions:
     max_steps: 12
     max_tokens: 1200
     token_strategy: a11y_tree
+    steps:
+      - { primitive: navigate, target: "/" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: click, target: "refund_or_policy_link" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "refund_policy" }
 
   - id: use_mcp_tool_if_available
     description: "Discover MCP tools if the site publishes a manifest"
@@ -146,6 +174,10 @@ missions:
     max_steps: 8
     max_tokens: 1000
     token_strategy: mcp_manifest
+    steps:
+      - { primitive: navigate, target: "/.well-known/mcp.json" }
+      - { primitive: wait, condition: "render" }
+      - { primitive: extract, target: "mcp_tools" }
 `;
 }
 
