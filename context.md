@@ -1,5 +1,9 @@
 # Agent Contract OS Context
 
+Source of truth: what is listed under **Implemented** is already built in this repo.
+Do not re-implement those items; inspect and extend the existing code instead.
+Use `architecture_hardening.md` for bounded technical next steps, not implementation truth.
+
 This repo is a local production CLI for proving whether a product surface works for AI agents. It is not a pitch deck or planning archive.
 
 ## Implemented
