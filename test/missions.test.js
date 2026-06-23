@@ -98,6 +98,19 @@ test("runSyntheticMissions executes opt-in standard missions", async (t) => {
   assert.match(result.results.find((item) => item.mission === "use_mcp_tool_if_available").summary, /create_contract/);
 });
 
+test("runSyntheticMissions rejects unknown mission ids", async (t) => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "agent-contract-unknown-mission-"));
+  t.after(() => rm(cacheDir, { recursive: true, force: true }));
+
+  await assert.rejects(
+    runSyntheticMissions("https://example.test", {
+      cacheDir,
+      missionIds: ["find_pricing", "does_not_exist"],
+    }),
+    /Unknown mission id\(s\): does_not_exist/,
+  );
+});
+
 function home() {
   return `<!doctype html>
 <html><body>

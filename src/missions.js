@@ -70,7 +70,11 @@ export async function runSyntheticMissions(inputUrl, options = {}) {
 function selectMissions(ids) {
   if (!ids?.length) return PHASE_ONE_MISSIONS;
   const wanted = new Set(ids);
-  return STANDARD_MISSIONS.filter((mission) => wanted.has(mission.id));
+  const missions = STANDARD_MISSIONS.filter((mission) => wanted.has(mission.id));
+  const found = new Set(missions.map((mission) => mission.id));
+  const unknown = [...wanted].filter((id) => !found.has(id));
+  if (unknown.length) throw new Error(`Unknown mission id(s): ${unknown.join(", ")}`);
+  return missions;
 }
 
 async function launchBrowser(options) {
