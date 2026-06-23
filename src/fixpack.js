@@ -18,6 +18,8 @@ export async function writeFixPack(outDir, { scan, logReport, missionReport }) {
   await addText("README.md", readme(scan, logReport, missionReport));
   if (!checkPassed(scan, "llms_txt")) await addText("llms.txt", llmsTxt(scan));
   if (!checkPassed(scan, "json_ld")) await addJson("schema-org.jsonld", jsonLd(scan));
+  if (checkFailed(scan, "agent_auth_undeclared")) await addJson("agent-auth-template.json", agentAuthTemplate(scan));
+  if (checkFailed(scan, "a2a_card_absent") || checkFailed(scan, "a2a_card_invalid")) await addJson("agent.json", a2aCardTemplate(scan));
   if (scan.openapi) {
     await addJson("openapi-patches.json", openApiPatches(scan));
     if (!scan.openapi.has_error_responses) await addJson("problem-details-example.json", problemDetailsExample(scan));
@@ -101,6 +103,31 @@ function jsonLd(scan) {
     url: scan.source.url,
     description: scan.page.sampleText || "Agent-readable product description.",
     applicationCategory: "DeveloperApplication",
+  };
+}
+
+function agentAuthTemplate(scan) {
+  return {
+    agent_auth: {
+      supported_schemes: ["mastercard_agent_pay", "visa_tap", "ap2_vc"],
+      consent_flow_url: new URL("/agent/consent", scan.source.url).pathname,
+      delegation_scope: ["read_catalog", "initiate_checkout"],
+      identity_required_for: ["checkout", "account_creation"],
+    },
+  };
+}
+
+function a2aCardTemplate(scan) {
+  const url = new URL(scan.source.url);
+  return {
+    name: scan.page?.title || url.hostname,
+    endpoint: new URL("/agent", scan.source.url).href,
+    capabilities: [
+      {
+        id: "answer_product_questions",
+        description: "Answer product, pricing, documentation, and policy questions from published agent-readable content.",
+      },
+    ],
   };
 }
 
@@ -196,4 +223,8 @@ ${dangerous}
 
 function checkPassed(scan, id) {
   return scan.checks.find((item) => item.id === id)?.pass === true;
+}
+
+function checkFailed(scan, id) {
+  return scan.checks.find((item) => item.id === id)?.pass === false;
 }

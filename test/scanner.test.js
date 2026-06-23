@@ -30,7 +30,14 @@ test("analyzeHtml detects JS-only pages, JSON-LD, cookie blockers, and links", (
   assert.equal(page.looksJsOnly, true);
   assert.ok(page.dom_tokens > 0);
   assert.equal(page.scriptCount, 4);
-  assert.deepEqual(page.webmcp_components, { detected: [], annotated: [], score: null });
+  assert.deepEqual(page.webmcp_components, {
+    detected: [],
+    annotated: [],
+    unannotated: [],
+    score: null,
+    coverage: null,
+    estimated_completion_rate_ceiling: null,
+  });
   assert.deepEqual(page.links, ["https://example.test/docs", "https://api.example.test/spec"]);
 });
 
@@ -92,7 +99,10 @@ test("analyzeHtml scores WebMCP component coverage", () => {
 
   assert.deepEqual(page.webmcp_components.detected.sort(), ["checkout", "contact", "pricing"].sort());
   assert.deepEqual(page.webmcp_components.annotated.sort(), ["checkout", "contact"].sort());
+  assert.deepEqual(page.webmcp_components.unannotated, ["pricing"]);
   assert.equal(page.webmcp_components.score, 2 / 3);
+  assert.equal(page.webmcp_components.coverage.total, 3);
+  assert.equal(page.webmcp_components.estimated_completion_rate_ceiling.all_annotated, 86.3);
 });
 
 test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON", async (t) => {
@@ -121,6 +131,26 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
     }
     if (pathname === "/.agent/agent-skills/index.json") {
       send(200, JSON.stringify({ version: "1.0.0", skills: [{ id: "find_pricing", description: "Find pricing" }] }), "application/json");
+      return;
+    }
+    if (pathname === "/.agent/contract.json") {
+      send(200, JSON.stringify({
+        version: "1.0.0",
+        agent_auth: {
+          supported_schemes: ["ap2_vc"],
+          consent_flow_url: "/agent/consent",
+          delegation_scope: ["read_catalog"],
+          identity_required_for: ["checkout"],
+        },
+      }), "application/json");
+      return;
+    }
+    if (pathname === "/.well-known/agent.json") {
+      send(200, JSON.stringify({ name: "Agent Contract OS", endpoint: "/agent", capabilities: [{ id: "find_pricing" }] }), "application/json");
+      return;
+    }
+    if (pathname === "/agent") {
+      send(200, JSON.stringify({ ok: true }), "application/json");
       return;
     }
     if (pathname === "/openapi.json") {
@@ -185,6 +215,10 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(checks.ab_test_variants.pass, true);
   assert.equal(checks.webmcp_registration.pass, false);
   assert.equal(checks.webmcp_registration.severity, "info");
+  assert.equal(checks.agent_auth_undeclared.pass, true);
+  assert.equal(checks.agent_auth_undeclared.dimension, "policy_compliance");
+  assert.equal(checks.a2a_card_valid.pass, true);
+  assert.equal(checks.a2a_card_valid.dimension, "discoverability");
   assert.equal(result.checks.every((check) => typeof check.taxonomy === "string"), true);
   assert.equal(checks.broken_links.pass, false);
   assert.equal(checks.openapi_descriptions.pass, true);
@@ -192,6 +226,33 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(checks.openapi_error_docs.pass, true);
   assert.equal(checks.openapi_auth_docs.pass, true);
   assert.equal(checks.agent_skills_discovery.pass, true);
+});
+
+test("scanUrl emits agent identity and invalid A2A findings", async (t) => {
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    const send = (status, body, contentType = "text/plain") => {
+      response.writeHead(status, { "content-type": contentType });
+      response.end(body);
+    };
+    if (pathname === "/") return send(200, `<html><body><p>${readableCopy()}</p></body></html>`, "text/html");
+    if (pathname === "/robots.txt") return send(200, "User-agent: *\nAllow: /\n");
+    if (pathname === "/sitemap.xml") return send(200, "<urlset></urlset>", "application/xml");
+    if (pathname === "/llms.txt") return send(200, "# Agent Contract\n");
+    if (pathname === "/.well-known/agent.json") return send(200, JSON.stringify({ endpoint: "/agent", capabilities: [] }), "application/json");
+    return send(404, "missing");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+
+  const result = await scanUrl(`http://127.0.0.1:${server.address().port}/`, { linkLimit: 0, timeoutMs: 2000 });
+  const checks = Object.fromEntries(result.checks.map((check) => [check.id, check]));
+
+  assert.equal(checks.agent_auth_undeclared.pass, false);
+  assert.equal(checks.agent_auth_undeclared.severity, "info");
+  assert.equal(checks.a2a_card_invalid.pass, false);
+  assert.match(checks.a2a_card_invalid.message, /no capabilities declared/);
 });
 
 function homeHtml() {

@@ -15,7 +15,9 @@ This repo is a local production CLI for proving whether a product surface works 
 - Static findings carry taxonomy/framing metadata, and the JS-only check records DOM token metrics.
 - Static analysis emits Content Position Index for critical elements and IPI risk findings for suspicious hidden/accessibility instructions.
 - Findings include AWI dimensions and reproducibility hashes for element-like CPI/IPI evidence.
-- Readiness includes AWI six-axis sub-scores, and WebMCP detection includes component coverage metadata.
+- Readiness includes AWI six-axis sub-scores, and WebMCP detection includes annotated/unannotated component coverage plus a local CI4A-style completion-rate ceiling estimate.
+- Static checks fetch `/.agent/contract.json` for `agent_auth` declarations and emit `agent_auth_undeclared` when missing.
+- Static checks fetch `/.well-known/agent.json`, validate minimal A2A Agent Card fields, and emit `a2a_card_absent`, `a2a_card_invalid`, or `a2a_card_valid`.
 - `.agent/` contract export with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, policy pack, and evidence snapshots.
 - Split-ready `.agent` spec material in `spec/`.
 - Report-only CI gate with HTML, Markdown, JSON, and OTLP JSON trace outputs.
@@ -29,11 +31,12 @@ This repo is a local production CLI for proving whether a product surface works 
 - Fix pack export for `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem-details examples.
 - Fix packs can include observed agent-traffic token-load projection when logs are supplied.
 - Fix packs include CPI advice and Sonnet input-cost estimates from logs or a labeled baseline when mission/log data is available.
+- Fix packs include `agent_auth` and A2A Agent Card templates when those declarations are missing or invalid.
 - Fix packs include an MCP security checklist when an MCP manifest is supplied.
 - Optional LLM fix explanation, gated by explicit provider config.
 - Local PR prep that applies fix packs on a git branch and records audit evidence. Remote PR creation requires explicit confirmation.
 - Env-backed private runner auth profiles with redacted evidence.
-- Enterprise policy audit over `.agent/contract.json`.
+- Enterprise policy audit over `.agent/contract.json`, including MCP spec-version comparison and compliance delta.
 - Contracts include CuP scoring across six local policy dimensions and MCP spec-version compliance fields.
 - Gate output includes local CuP pass/fail status from mission, consent, auth-wall, MCP-danger, and rate-limit signals.
 - Repo scan for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
@@ -54,7 +57,10 @@ npm pack --dry-run
 - AWI six-axis scoring is derived from local scanner signals; it is not a validated industry benchmark score.
 - CuP scoring is local policy-dimension scoring over current contract evidence; it is not a full ST-WebAgentBench reproduction.
 - WebMCP component coverage is static detection of annotations/markers; it is not real browser tool execution.
+- A2A Agent Card validation is static JSON validation plus basic endpoint reachability; it is not delegated A2A task execution.
+- Agent identity support is declaration detection only; it does not verify payment-network identity, DIDs, verifiable credentials, or liability shift.
 - Cost-at-scale is a token-load projection from observed logs and DOM token metrics; it is not provider billing proof.
+- OTel GenAI model/provider/token attributes are emitted only when explicitly supplied; the CLI does not fake model usage from DOM token estimates.
 - Smoke artifacts are local proof that the CLI paths run; they are not customer or production proof.
 
 ## Not Proven Here
@@ -73,6 +79,8 @@ npm pack --dry-run
 - Compliance buyer validation.
 - Checkout/signup/payment missions.
 - WebMCP tool execution.
+- A2A delegated task execution.
+- Payment-network agent identity verification.
 - Unreviewed auto-PR behavior.
 
 ## Current Rule

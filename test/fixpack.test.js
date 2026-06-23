@@ -37,6 +37,8 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   const manifest = await writeFixPack(join(dir, "fix-pack"), { scan, logReport });
 
   assert.deepEqual(manifest.files.sort(), [
+    "agent-auth-template.json",
+    "agent.json",
     "README.md",
     "llms.txt",
     "openapi-patches.json",
@@ -48,6 +50,8 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   const llms = await readFile(join(dir, "fix-pack", "llms.txt"), "utf8");
   const readme = await readFile(join(dir, "fix-pack", "README.md"), "utf8");
   const mcpChecklist = await readFile(join(dir, "fix-pack", "mcp-security-checklist.md"), "utf8");
+  const agentAuth = JSON.parse(await readFile(join(dir, "fix-pack", "agent-auth-template.json"), "utf8"));
+  const agentCard = JSON.parse(await readFile(join(dir, "fix-pack", "agent.json"), "utf8"));
   const jsonld = JSON.parse(await readFile(join(dir, "fix-pack", "schema-org.jsonld"), "utf8"));
   const patches = JSON.parse(await readFile(join(dir, "fix-pack", "openapi-patches.json"), "utf8"));
   const problem = JSON.parse(await readFile(join(dir, "fix-pack", "problem-details-example.json"), "utf8"));
@@ -57,6 +61,8 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   assert.match(readme, /Estimated monthly Sonnet input cost/);
   assert.match(mcpChecklist, /NSA U\/OO\/6030316-26/);
   assert.match(mcpChecklist, /delete_workspace/);
+  assert.ok(agentAuth.agent_auth.supported_schemes.includes("ap2_vc"));
+  assert.equal(agentCard.capabilities[0].id, "answer_product_questions");
   assert.equal(jsonld["@type"], "SoftwareApplication");
   assert.ok(patches.patches.some((patch) => patch.op === "add_examples"));
   assert.ok(patches.patches.some((patch) => patch.op === "add_error_responses"));

@@ -23,6 +23,23 @@ test("evaluatePolicyPack reports pass/fail controls from contract evidence", () 
   );
 });
 
+test("evaluatePolicyPack emits MCP spec comparison and compliance delta", () => {
+  const audit = evaluatePolicyPack(enterpriseContract({
+    surface: {
+      mcp: {
+        discovered: true,
+        spec_version: "2025-03-26",
+        spec_version_compliant: false,
+      },
+    },
+  }), enterprisePolicy());
+
+  assert.equal(audit.mcp_compliance.current_spec, "2025-06-18");
+  assert.equal(audit.mcp_compliance.spec_version_declared, "2025-03-26");
+  assert.equal(audit.mcp_compliance.status, "outdated_or_missing");
+  assert.ok(audit.mcp_compliance.compliance_delta > 0);
+});
+
 test("writePolicyAudit writes JSON and Markdown audit reports", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "agent-contract-policy-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -54,6 +71,7 @@ function enterpriseContract(overrides = {}) {
     surface: {
       website: { has_robots_txt: true, has_llms_txt: true, has_sitemap: true },
       api: { has_error_examples: true, auth_methods: ["documented"] },
+      mcp: { discovered: false, spec_version_compliant: true },
     },
     readiness: { score: 92, critical_gaps: [] },
     missions: { tested: 3, passed: 3, failed: 0 },

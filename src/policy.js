@@ -36,6 +36,7 @@ export function evaluatePolicyPack(contract, policy = ENTERPRISE_POLICY_PACK) {
     policy: { name: policy.name, version: policy.version || "custom" },
     source: contract.source?.url || null,
     status: controls.every((control) => control.status === "passed") ? "passed" : "failed",
+    mcp_compliance: mcpCompliance(contract),
     controls,
   };
 }
@@ -50,16 +51,50 @@ export async function writePolicyAudit(outDir, contract, policy = ENTERPRISE_POL
 
 export function renderComplianceMarkdown(audit) {
   const rows = audit.controls.map((control) => `| ${control.status} | ${control.severity} | ${control.id} | ${control.require} | ${String(control.actual)} | ${control.expected} |`).join("\n");
+  const mcp = audit.mcp_compliance;
   return `# ${audit.policy.name}
 
 - Source: ${audit.source || "n/a"}
 - Status: ${audit.status}
 - Generated: ${audit.generated_at}
 
+## MCP Compliance
+
+- Spec version declared: ${mcp.spec_version_declared || "n/a"}
+- Current spec: ${mcp.current_spec}
+- Status: ${mcp.status}
+- Compliance delta: ${mcp.compliance_delta}
+- Missing: ${mcp.missing.length ? mcp.missing.join(", ") : "none"}
+
 | Status | Severity | Control | Evidence Path | Actual | Expected |
 |---|---:|---|---|---:|---|
 ${rows}
 `;
+}
+
+function mcpCompliance(contract) {
+  const mcp = contract.surface?.mcp || {};
+  const currentSpec = "2025-06-18";
+  if (!mcp.discovered) {
+    return {
+      spec_version_declared: mcp.spec_version || "",
+      current_spec: currentSpec,
+      status: "not_applicable",
+      compliance_delta: 0,
+      missing: [],
+    };
+  }
+  const missing = [];
+  if (!mcp.spec_version) missing.push("spec_version");
+  if (mcp.spec_version && mcp.spec_version !== currentSpec) missing.push("current_spec_version");
+  if (mcp.spec_version_compliant === false) missing.push("spec_version_compliant");
+  return {
+    spec_version_declared: mcp.spec_version || "",
+    current_spec: currentSpec,
+    status: missing.length ? "outdated_or_missing" : "current",
+    compliance_delta: missing.length,
+    missing,
+  };
 }
 
 function get(value, path) {

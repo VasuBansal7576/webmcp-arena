@@ -14,6 +14,8 @@ export async function scanUrl(input, options = {}) {
   const llms = await optionalFetch(new URL("/llms.txt", url), options);
   const openapi = options.openapi ? await fetchOpenApi(options.openapi, options) : null;
   const mcp = options.mcp ? await loadMcpManifest(options.mcp, options) : null;
+  const agentContract = await loadAgentContract(url, options);
+  const a2a = await loadA2aCard(url, options);
   const agentSkillsRequired = Boolean(options.agentSkills);
   const agentSkills = await loadAgentSkills(options.agentSkills || new URL("/.agent/agent-skills/index.json", url).href, options);
   const page = analyzeHtml(html, url, home.headers);
@@ -52,6 +54,8 @@ export async function scanUrl(input, options = {}) {
     check("ab_test_variants", !page.hasAbVariantRisk, page.hasAbVariantRisk ? "A/B or experiment variant markers detected; run missions against stable variants" : "No obvious A/B variant markers detected", "low"),
     check("webmcp_registration", page.hasWebMcp, page.hasWebMcp ? "WebMCP tool registration markers detected" : "No WebMCP tool registration markers detected", "info"),
     check("broken_links", links.broken.length === 0, links.broken.length ? `${links.broken.length} sampled links failed` : "Sampled links reachable", "high"),
+    ...agentAuthChecks(agentContract),
+    ...a2aChecks(a2a),
     ...openApiChecks(openapi),
     ...mcpChecks(mcp),
     ...agentSkillsChecks(agentSkills, agentSkillsRequired),
@@ -69,6 +73,8 @@ export async function scanUrl(input, options = {}) {
     llms: pickFetch(llms),
     openapi,
     mcp,
+    agent_contract: agentContract,
+    a2a,
     agent_skills: agentSkills,
     links,
     checks,
@@ -113,6 +119,65 @@ async function fetchOpenApi(input, options) {
     return analyzeOpenApi(spec, input);
   } catch {
     return { ok: false, url: input, error: "Only JSON OpenAPI specs are supported in v1. YAML support needs a real parser dependency." };
+  }
+}
+
+async function loadAgentContract(baseUrl, options) {
+  const source = new URL("/.agent/contract.json", baseUrl);
+  const result = await optionalFetch(source, options);
+  if (!result.ok) return { discovered: false, source: source.href, status: result.status, error: result.error || `contract.json fetch failed with ${result.status}` };
+  try {
+    const json = JSON.parse(result.text);
+    const agentAuth = json?.agent_auth && typeof json.agent_auth === "object" ? json.agent_auth : null;
+    return { discovered: true, source: result.url, status: result.status, content_hash: sha256(result.text), agent_auth: agentAuth };
+  } catch (error) {
+    return { discovered: true, source: result.url, status: result.status, error: `contract.json is not valid JSON: ${error.message}` };
+  }
+}
+
+async function loadA2aCard(baseUrl, options) {
+  const source = new URL("/.well-known/agent.json", baseUrl);
+  const result = await optionalFetch(source, options);
+  if (!result.ok) return { discovered: false, source: source.href, status: result.status, valid: false, errors: [result.error || `agent.json fetch failed with ${result.status}`] };
+  try {
+    const json = JSON.parse(result.text);
+    const endpoint = agentEndpoint(json, baseUrl);
+    const capabilities = Array.isArray(json.capabilities) ? json.capabilities : Array.isArray(json.skills) ? json.skills : [];
+    const errors = [];
+    if (!capabilities.length) errors.push("no capabilities declared");
+    if (!endpoint) errors.push("no endpoint declared");
+    let endpointStatus = null;
+    let endpointReachable = false;
+    if (endpoint) {
+      const endpointResult = await optionalFetch(endpoint, options);
+      endpointStatus = endpointResult.status;
+      endpointReachable = endpointResult.status > 0 && endpointResult.status < 500;
+      if (!endpointReachable) errors.push("declared endpoint is unreachable");
+    }
+    return {
+      discovered: true,
+      source: result.url,
+      status: result.status,
+      valid: errors.length === 0,
+      content_hash: sha256(result.text),
+      capability_count: capabilities.length,
+      endpoint: endpoint?.href || "",
+      endpoint_status: endpointStatus,
+      endpoint_reachable: endpointReachable,
+      errors,
+    };
+  } catch (error) {
+    return { discovered: true, source: result.url, status: result.status, valid: false, errors: [`agent.json is not valid JSON: ${error.message}`] };
+  }
+}
+
+function agentEndpoint(card, baseUrl) {
+  const raw = card?.endpoint || card?.url || card?.serviceEndpoint || card?.transport?.url;
+  if (!raw) return null;
+  try {
+    return new URL(String(raw), baseUrl);
+  } catch {
+    return null;
   }
 }
 
@@ -250,6 +315,34 @@ function agentSkillsChecks(agentSkills, required) {
   ];
 }
 
+function agentAuthChecks(agentContract) {
+  const declared = Boolean(agentContract?.agent_auth);
+  const message = declared
+    ? "Agent identity declaration found in .agent/contract.json"
+    : agentContract?.error?.startsWith("contract.json is not valid JSON")
+      ? agentContract.error
+      : "No agent_auth block declared in .agent/contract.json";
+  return [
+    check(
+      "agent_auth_undeclared",
+      declared,
+      message,
+      declared ? "low" : "info",
+      { source: agentContract?.source || "", discovered: Boolean(agentContract?.discovered) },
+    ),
+  ];
+}
+
+function a2aChecks(a2a) {
+  if (!a2a?.discovered) {
+    return [check("a2a_card_absent", false, "/.well-known/agent.json missing or unreachable", "info", { source: a2a?.source || "" })];
+  }
+  if (!a2a.valid) {
+    return [check("a2a_card_invalid", false, a2a.errors?.join("; ") || "/.well-known/agent.json is invalid", "medium", { source: a2a.source, errors: a2a.errors || [] })];
+  }
+  return [check("a2a_card_valid", true, `A2A Agent Card valid with ${a2a.capability_count} capabilities`, "low", { source: a2a.source, endpoint: a2a.endpoint })];
+}
+
 function check(id, pass, message, severity = "medium", details = {}) {
   return {
     id,
@@ -279,9 +372,9 @@ function awiScores(checks, page, agentSkills) {
     safety: axis(20, failed.has("mcp_dangerous_tools") ? 12 : 0, failed.has("cookie_modal") ? 4 : 0),
     efficiency: axis(20, failed.has("js_only_content") ? 12 : 0, page.dom_tokens > 5000 ? 4 : 0),
     standardization: axis(20, failed.has("llms_txt") ? 8 : 0, failed.has("mcp_spec_version") ? 4 : 0, page.hasWebMcp ? 0 : 2),
-    discoverability: axis(20, failed.has("sitemap") ? 5 : 0, failed.has("json_ld") ? 5 : 0, agentSkills.discovered ? 0 : 3),
+    discoverability: axis(20, failed.has("sitemap") ? 5 : 0, failed.has("json_ld") ? 5 : 0, agentSkills.discovered ? 0 : 3, failed.has("a2a_card_absent") || failed.has("a2a_card_invalid") ? 2 : 0),
     observability: 20,
-    policy_compliance: axis(20, failed.has("robots_txt") ? 5 : 0, failed.has("mcp_dangerous_tools") ? 10 : 0),
+    policy_compliance: axis(20, failed.has("robots_txt") ? 5 : 0, failed.has("mcp_dangerous_tools") ? 10 : 0, failed.has("agent_auth_undeclared") ? 2 : 0),
   };
   return { total: Object.values(axes).reduce((sum, value) => sum + value, 0), max: 120, axes };
 }
@@ -294,7 +387,21 @@ function webMcpCoverage(text, toolNames) {
   const components = ["checkout", "contact", "pricing", "signup", "api key"];
   const detected = components.filter((item) => new RegExp(item.replace(" ", "[ -]?"), "i").test(text));
   const annotated = detected.filter((item) => toolNames.some((tool) => tool.includes(item.replace(" ", "_")) || tool.includes(item.replace(" ", "")) || tool.includes(item)));
-  return { detected, annotated, score: detected.length ? annotated.length / detected.length : null };
+  const score = detected.length ? annotated.length / detected.length : null;
+  const unannotated = detected.filter((item) => !annotated.includes(item));
+  return {
+    detected,
+    annotated,
+    unannotated,
+    score,
+    coverage: detected.length ? { annotated: annotated.length, unannotated: unannotated.length, total: detected.length } : null,
+    estimated_completion_rate_ceiling: score === null ? null : {
+      current: Math.round((61.7 + (86.3 - 61.7) * score) * 10) / 10,
+      all_annotated: 86.3,
+      baseline_unannotated: 61.7,
+      source: "CI4A arXiv:2601.14790",
+    },
+  };
 }
 
 function criticalElementPositions(text, contentHash) {
@@ -344,6 +451,10 @@ const TAXONOMY = {
   mcp_discovery: "MCP::Discovery",
   mcp_spec_version: "MCP::SpecVersion",
   webmcp_registration: "WebMCP::ToolRegistration",
+  agent_auth_undeclared: "AgentIdentity::Declaration",
+  a2a_card_absent: "A2A::AgentCard",
+  a2a_card_invalid: "A2A::AgentCard",
+  a2a_card_valid: "A2A::AgentCard",
 };
 
 const DIMENSION = {
@@ -355,6 +466,10 @@ const DIMENSION = {
   webmcp_registration: "standardization",
   mcp_discovery: "standardization",
   mcp_spec_version: "policy_compliance",
+  agent_auth_undeclared: "policy_compliance",
+  a2a_card_absent: "discoverability",
+  a2a_card_invalid: "discoverability",
+  a2a_card_valid: "discoverability",
   openapi_descriptions: "standardization",
   openapi_examples: "standardization",
   openapi_error_docs: "standardization",
@@ -377,6 +492,9 @@ const FRAMING = {
   ab_test_variants: "Research framing: unstable variants make mission replay less trustworthy.",
   broken_links: "Research framing: direct navigation failures block agents before task reasoning starts.",
   mcp_dangerous_tools: "Research framing: MCP tools with side effects need explicit human-approval boundaries.",
+  agent_auth_undeclared: "Research framing: payment and account agents need declared identity and consent boundaries before checkout-like workflows.",
+  a2a_card_absent: "Research framing: A2A Agent Cards make delegated agent endpoints discoverable without manual orchestration setup.",
+  a2a_card_invalid: "Research framing: invalid Agent Cards break machine-to-machine delegation even when a human docs page exists.",
 };
 
 function pickFetch(result) {
