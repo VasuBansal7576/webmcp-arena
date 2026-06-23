@@ -63,6 +63,7 @@ writeFileSync(authProfilePath, JSON.stringify({
 }, null, 2));
 writeFileSync(mcpPath, JSON.stringify({
   name: "smoke-mcp",
+  protocolVersion: "2025-06-18",
   tools: [
     { name: "list_contracts", description: "Read existing agent contracts" },
     { name: "deploy_contract", description: "Deploy an agent contract", requires_human_approval: true },
