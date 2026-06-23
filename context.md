@@ -23,6 +23,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Enterprise policy audit over `.agent/contract.json`.
 - Repo scan for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
 - Local Solo web shell at `npm run solo`, built as a thin wrapper around the existing scanner and fix-pack path.
+- Local sourced positioning-post draft in `docs/positioning-post.md`.
 
 ## Proven Locally
 
@@ -37,6 +38,7 @@ npm pack --dry-run
 
 - Customer log access.
 - Company pilots or LOIs.
+- Public article/channel publication.
 - Public package publication.
 - Public standard adoption.
 - GitHub stars or external usage.
