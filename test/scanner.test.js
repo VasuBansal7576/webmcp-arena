@@ -30,6 +30,7 @@ test("analyzeHtml detects JS-only pages, JSON-LD, cookie blockers, and links", (
   assert.equal(page.looksJsOnly, true);
   assert.ok(page.dom_tokens > 0);
   assert.equal(page.scriptCount, 4);
+  assert.deepEqual(page.webmcp_components, { detected: [], annotated: [], score: null });
   assert.deepEqual(page.links, ["https://example.test/docs", "https://api.example.test/spec"]);
 });
 
@@ -60,6 +61,20 @@ test("analyzeHtml detects WebMCP markers", () => {
 
   assert.equal(analyzeHtml(html).hasWebMcp, true);
   assert.equal(analyzeHtml("<html></html>", undefined, { "webmcp-enabled": "true" }).hasWebMcp, true);
+});
+
+test("analyzeHtml scores WebMCP component coverage", () => {
+  const page = analyzeHtml(`<!doctype html>
+    <html><body>
+      <a>Pricing</a>
+      <form tool-name="contact_sales">Contact sales</form>
+      <script>navigator.modelContext.registerTool({ name: "checkout" })</script>
+      <button>Checkout</button>
+    </body></html>`);
+
+  assert.deepEqual(page.webmcp_components.detected.sort(), ["checkout", "contact", "pricing"].sort());
+  assert.deepEqual(page.webmcp_components.annotated.sort(), ["checkout", "contact"].sort());
+  assert.equal(page.webmcp_components.score, 2 / 3);
 });
 
 test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON", async (t) => {
@@ -121,6 +136,8 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(result.sitemap.ok, true);
   assert.equal(result.llms.ok, true);
   assert.equal(result.page.hasJsonLd, true);
+  assert.equal(result.readiness.awi.max, 120);
+  assert.ok(result.readiness.awi.axes.safety <= 20);
   assert.equal(result.page.looksJsOnly, false);
   assert.equal(result.openapi.ok, true);
   assert.equal(result.openapi.operation_count, 1);

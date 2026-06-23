@@ -19,6 +19,7 @@ export async function writeFixPack(outDir, { scan, logReport }) {
     await addJson("openapi-patches.json", openApiPatches(scan));
     if (!scan.openapi.has_error_responses) await addJson("problem-details-example.json", problemDetailsExample(scan));
   }
+  if (scan.mcp?.discovered) await addText("mcp-security-checklist.md", mcpSecurityChecklist(scan));
 
   return { generated_at: nowIso(), outDir, files };
 }
@@ -150,6 +151,27 @@ function problemDetailsExample(scan) {
     detail: "The request could not be completed. Include a stable machine-readable error code in production.",
     instance: new URL("/errors/example", scan.source.url).href,
   };
+}
+
+function mcpSecurityChecklist(scan) {
+  const mcp = scan.mcp;
+  const dangerous = (mcp.unapproved_dangerous_tools || []).map((tool) => `- [ ] Review \`${tool.name}\` (${tool.categories.join(", ")}) and add explicit human approval metadata.`).join("\n") || "- [x] No unapproved dangerous tools detected.";
+  return `# MCP Security Checklist
+
+Source: ${mcp.source}
+
+Reference: NSA U/OO/6030316-26, Model Context Protocol (MCP): Security Design.
+
+- [${mcp.spec_version_compliant ? "x" : " "}] MCP spec version is 2025-06-18.
+- [ ] Protected Resource Metadata is documented for authenticated MCP resources.
+- [ ] Tool annotations mark destructive, idempotent, and read-only behavior.
+- [ ] Tool descriptions are reviewed for prompt injection and poisoning.
+- [ ] Tool description hashes are monitored for rug-pull changes.
+
+## Tool approval review
+
+${dangerous}
+`;
 }
 
 function checkPassed(scan, id) {

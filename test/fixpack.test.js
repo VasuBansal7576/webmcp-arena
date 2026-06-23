@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -30,7 +30,9 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve) => server.close(() => resolve())));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const scan = await scanUrl(`${baseUrl}/`, { openapi: `${baseUrl}/openapi.json` });
+  const mcpPath = join(dir, "mcp.json");
+  await writeFile(mcpPath, JSON.stringify({ protocolVersion: "2025-06-18", tools: [{ name: "delete_workspace", description: "Delete workspace data" }] }));
+  const scan = await scanUrl(`${baseUrl}/`, { openapi: `${baseUrl}/openapi.json`, mcp: mcpPath });
   const logReport = analyzeLogs('203.0.113.1 - - [21/Jun/2026:12:00:00 +0000] "GET / HTTP/1.1" 200 1200 "-" "GPTBot/1.0"\n');
   const manifest = await writeFixPack(join(dir, "fix-pack"), { scan, logReport });
 
@@ -40,10 +42,12 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
     "openapi-patches.json",
     "problem-details-example.json",
     "schema-org.jsonld",
+    "mcp-security-checklist.md",
   ].sort());
 
   const llms = await readFile(join(dir, "fix-pack", "llms.txt"), "utf8");
   const readme = await readFile(join(dir, "fix-pack", "README.md"), "utf8");
+  const mcpChecklist = await readFile(join(dir, "fix-pack", "mcp-security-checklist.md"), "utf8");
   const jsonld = JSON.parse(await readFile(join(dir, "fix-pack", "schema-org.jsonld"), "utf8"));
   const patches = JSON.parse(await readFile(join(dir, "fix-pack", "openapi-patches.json"), "utf8"));
   const problem = JSON.parse(await readFile(join(dir, "fix-pack", "problem-details-example.json"), "utf8"));
@@ -51,6 +55,8 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   assert.match(llms, /Agent Contract OS creates contracts/i);
   assert.match(readme, /Cost at scale/);
   assert.match(readme, /Projected repeated navigation load/);
+  assert.match(mcpChecklist, /NSA U\/OO\/6030316-26/);
+  assert.match(mcpChecklist, /delete_workspace/);
   assert.equal(jsonld["@type"], "SoftwareApplication");
   assert.ok(patches.patches.some((patch) => patch.op === "add_examples"));
   assert.ok(patches.patches.some((patch) => patch.op === "add_error_responses"));

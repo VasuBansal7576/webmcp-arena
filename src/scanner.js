@@ -43,6 +43,7 @@ export async function scanUrl(input, options = {}) {
   ];
 
   const score = scoreChecks(checks);
+  const awi = awiScores(checks, page, agentSkills);
   return {
     generated_at: startedAt,
     source: { type: "website", url: url.href, content_hash: sha256(html) },
@@ -58,6 +59,7 @@ export async function scanUrl(input, options = {}) {
     checks,
     readiness: {
       score,
+      awi,
       level: score >= 85 ? "gold" : score >= 70 ? "silver" : score >= 50 ? "bronze" : "blocked",
       critical_gaps: checks.filter((item) => !item.pass && item.severity === "critical").map((item) => item.message),
     },
@@ -115,6 +117,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
   const scriptCount = (html.match(/<script\b/gi) || []).length;
   const lowerHtml = html.toLowerCase();
   const headerWebMcp = Object.entries(headers).some(([key, value]) => key.toLowerCase() === "webmcp-enabled" && /^(1|true|yes)$/i.test(String(value)));
+  const webmcpTools = [...html.matchAll(/\btool-name=["']([^"']+)["']/gi), ...html.matchAll(/\bname:\s*["']([^"']+)["']/gi)].map((match) => match[1].toLowerCase());
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
@@ -136,6 +139,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
     hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
     hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
     hasWebMcp: headerWebMcp || /\b(?:navigator|document)\.modelContext\b|\.registerTool\s*\(|@mcp-b\/global|\btool-(?:name|description)=["']/i.test(html),
+    webmcp_components: webMcpCoverage(bodyText, webmcpTools),
     looksJsOnly: bodyText.length < 300 && scriptCount > 3,
     links: [...new Set(links)].slice(0, 100),
     sampleText: bodyText.slice(0, 500),
@@ -247,6 +251,30 @@ function scoreChecks(checks) {
 
 function estimateTokens(text) {
   return Math.ceil((text || "").length / 4);
+}
+
+function awiScores(checks, page, agentSkills) {
+  const failed = new Set(checks.filter((item) => !item.pass).map((item) => item.id));
+  const axes = {
+    safety: axis(20, failed.has("mcp_dangerous_tools") ? 12 : 0, failed.has("cookie_modal") ? 4 : 0),
+    efficiency: axis(20, failed.has("js_only_content") ? 12 : 0, page.dom_tokens > 5000 ? 4 : 0),
+    standardization: axis(20, failed.has("llms_txt") ? 8 : 0, failed.has("mcp_spec_version") ? 4 : 0, page.hasWebMcp ? 0 : 2),
+    discoverability: axis(20, failed.has("sitemap") ? 5 : 0, failed.has("json_ld") ? 5 : 0, agentSkills.discovered ? 0 : 3),
+    observability: 20,
+    policy_compliance: axis(20, failed.has("robots_txt") ? 5 : 0, failed.has("mcp_dangerous_tools") ? 10 : 0),
+  };
+  return { total: Object.values(axes).reduce((sum, value) => sum + value, 0), max: 120, axes };
+}
+
+function axis(max, ...losses) {
+  return clamp(max - losses.reduce((sum, value) => sum + value, 0), 0, max);
+}
+
+function webMcpCoverage(text, toolNames) {
+  const components = ["checkout", "contact", "pricing", "signup", "api key"];
+  const detected = components.filter((item) => new RegExp(item.replace(" ", "[ -]?"), "i").test(text));
+  const annotated = detected.filter((item) => toolNames.some((tool) => tool.includes(item.replace(" ", "_")) || tool.includes(item.replace(" ", "")) || tool.includes(item)));
+  return { detected, annotated, score: detected.length ? annotated.length / detected.length : null };
 }
 
 const TAXONOMY = {

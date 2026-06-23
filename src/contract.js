@@ -257,7 +257,18 @@ function agentSkillsIndex(scan, missionReport) {
 function cup(scan, missionReport) {
   const tested = missionReport?.tested || 0;
   const userConsentOk = (scan.mcp?.unapproved_dangerous_tools?.length || 0) === 0;
+  const dimensions = {
+    user_consent: userConsentOk,
+    strict_execution: (missionReport?.failed || 0) === 0,
+    privacy: scan.robots?.ok === true,
+    security: userConsentOk && scan.mcp?.spec_version_compliant !== false,
+    transparency: scan.llms?.ok === true,
+    reliability: !scan.checks?.some((item) => !item.pass && item.id === "broken_links"),
+  };
+  const score = round(Object.values(dimensions).filter(Boolean).length / Object.keys(dimensions).length);
   return {
+    score,
+    dimensions,
     user_consent: {
       tested,
       passed: userConsentOk ? (missionReport?.passed || 0) : 0,

@@ -32,6 +32,8 @@ test("buildContract carries MCP compliance and partial CuP user-consent score", 
 
   assert.equal(contract.surface.mcp.spec_version_compliant, true);
   assert.equal(contract.surface.mcp.tool_description_hash, "hash");
+  assert.equal(contract.cup.score, 1);
+  assert.equal(Object.keys(contract.cup.dimensions).length, 6);
   assert.equal(contract.cup.user_consent.score, 1);
   assert.deepEqual(contract.cup.user_consent.violations, []);
 });
