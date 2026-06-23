@@ -11,6 +11,8 @@ export const ENTERPRISE_POLICY_PACK = {
     { id: "readiness_score", require: "readiness.score", min: 80, severity: "high" },
     { id: "no_critical_gaps", require: "readiness.critical_gaps.length", equals: 0, severity: "critical" },
     { id: "synthetic_missions_pass", require: "missions.failed", equals: 0, severity: "critical" },
+    { id: "cup_user_consent", require: "cup.user_consent.violations.length", equals: 0, severity: "high" },
+    { id: "mcp_spec_version_compliant", require: "surface.mcp.spec_version_compliant", equals: true, severity: "medium" },
     { id: "api_error_examples", require: "surface.api.has_error_examples", equals: true, severity: "medium" },
     { id: "api_auth_documented", require: "surface.api.auth_methods.length", min: 1, severity: "medium" },
   ],

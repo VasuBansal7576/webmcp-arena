@@ -37,6 +37,7 @@ export async function loadMcpManifest(input, options = {}) {
 
 export function analyzeMcpManifest(manifest, source = "inline", rawText = JSON.stringify(manifest)) {
   const tools = extractTools(manifest);
+  const specVersion = String(manifest.protocolVersion || manifest.protocol_version || manifest.spec_version || manifest.specVersion || manifest.mcp?.version || "");
   const dangerousTools = tools.flatMap((tool) => {
     const reasons = dangerReasons(tool);
     if (!reasons.length) return [];
@@ -52,9 +53,12 @@ export function analyzeMcpManifest(manifest, source = "inline", rawText = JSON.s
     discovered: true,
     source,
     name: manifest?.name || manifest?.server?.name || "",
+    spec_version: specVersion,
+    spec_version_compliant: specVersion === "2025-06-18",
     content_hash: sha256(rawText || JSON.stringify(manifest)),
+    tool_description_hash: sha256(tools.map((tool) => `${tool.name}:${tool.description || ""}`).join("\n")),
     tool_count: tools.length,
-    tools: tools.map((tool) => ({ name: tool.name, description: tool.description || "" })),
+    tools: tools.map((tool) => ({ name: tool.name, description: tool.description || "", description_hash: sha256(tool.description || "") })),
     dangerous_tools: dangerousTools,
     unapproved_dangerous_tools: dangerousTools.filter((tool) => !tool.requires_approval),
   };

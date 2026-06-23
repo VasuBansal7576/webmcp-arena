@@ -199,6 +199,12 @@ function mcpChecks(mcp) {
   return [
     check("mcp_discovery", true, `MCP manifest discovered with ${mcp.tool_count} tools`, "medium"),
     check(
+      "mcp_spec_version",
+      mcp.spec_version_compliant,
+      mcp.spec_version ? `MCP spec version ${mcp.spec_version}` : "MCP spec version missing",
+      "medium",
+    ),
+    check(
       "mcp_dangerous_tools",
       mcp.unapproved_dangerous_tools.length === 0,
       mcp.unapproved_dangerous_tools.length
@@ -252,6 +258,7 @@ const TAXONOMY = {
   broken_links: "BrowserArena::DirectNavigationBlocked",
   mcp_dangerous_tools: "MCP::ToolRugPullRisk",
   mcp_discovery: "MCP::Discovery",
+  mcp_spec_version: "MCP::SpecVersion",
   webmcp_registration: "WebMCP::ToolRegistration",
 };
 

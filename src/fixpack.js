@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { nowIso, writeJson, writeText } from "./util.js";
 
-export async function writeFixPack(outDir, { scan }) {
+export async function writeFixPack(outDir, { scan, logReport }) {
   const files = [];
   const addText = async (name, value) => {
     await writeText(join(outDir, name), value);
@@ -12,7 +12,7 @@ export async function writeFixPack(outDir, { scan }) {
     files.push(name);
   };
 
-  await addText("README.md", readme(scan));
+  await addText("README.md", readme(scan, logReport));
   if (!checkPassed(scan, "llms_txt")) await addText("llms.txt", llmsTxt(scan));
   if (!checkPassed(scan, "json_ld")) await addJson("schema-org.jsonld", jsonLd(scan));
   if (scan.openapi) {
@@ -23,7 +23,7 @@ export async function writeFixPack(outDir, { scan }) {
   return { generated_at: nowIso(), outDir, files };
 }
 
-function readme(scan) {
+function readme(scan, logReport) {
   const failed = scan.checks.filter((item) => !item.pass);
   const list = failed.length
     ? failed.map((item) => `- ${item.id}: ${item.message}`).join("\n")
@@ -38,6 +38,19 @@ Review these files before committing them. This pack does not open PRs or mutate
 ## Evidence-backed gaps
 
 ${list}
+${costAtScale(scan, logReport)}
+`;
+}
+
+function costAtScale(scan, logReport) {
+  if (!logReport?.total_agent_requests || !scan.page?.dom_tokens) return "";
+  const dailyInputTokens = logReport.total_agent_requests * scan.page.dom_tokens;
+  return `
+## Cost at scale
+
+Observed agent requests: ${logReport.total_agent_requests}
+Readable DOM tokens per request: ${scan.page.dom_tokens}
+Projected repeated navigation load: ${dailyInputTokens.toLocaleString()} input tokens per matching traffic window.
 `;
 }
 

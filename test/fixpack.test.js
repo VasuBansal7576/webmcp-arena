@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { scanUrl } from "../src/scanner.js";
 import { writeFixPack } from "../src/fixpack.js";
+import { analyzeLogs } from "../src/logs.js";
 
 test("writeFixPack exports reviewable files for missing llms, jsonld, and weak OpenAPI", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "agent-contract-fixpack-"));
@@ -30,7 +31,8 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   t.after(() => new Promise((resolve) => server.close(() => resolve())));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const scan = await scanUrl(`${baseUrl}/`, { openapi: `${baseUrl}/openapi.json` });
-  const manifest = await writeFixPack(join(dir, "fix-pack"), { scan });
+  const logReport = analyzeLogs('203.0.113.1 - - [21/Jun/2026:12:00:00 +0000] "GET / HTTP/1.1" 200 1200 "-" "GPTBot/1.0"\n');
+  const manifest = await writeFixPack(join(dir, "fix-pack"), { scan, logReport });
 
   assert.deepEqual(manifest.files.sort(), [
     "README.md",
@@ -41,11 +43,14 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
   ].sort());
 
   const llms = await readFile(join(dir, "fix-pack", "llms.txt"), "utf8");
+  const readme = await readFile(join(dir, "fix-pack", "README.md"), "utf8");
   const jsonld = JSON.parse(await readFile(join(dir, "fix-pack", "schema-org.jsonld"), "utf8"));
   const patches = JSON.parse(await readFile(join(dir, "fix-pack", "openapi-patches.json"), "utf8"));
   const problem = JSON.parse(await readFile(join(dir, "fix-pack", "problem-details-example.json"), "utf8"));
 
   assert.match(llms, /Agent Contract OS creates contracts/i);
+  assert.match(readme, /Cost at scale/);
+  assert.match(readme, /Projected repeated navigation load/);
   assert.equal(jsonld["@type"], "SoftwareApplication");
   assert.ok(patches.patches.some((patch) => patch.op === "add_examples"));
   assert.ok(patches.patches.some((patch) => patch.op === "add_error_responses"));

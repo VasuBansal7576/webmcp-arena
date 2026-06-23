@@ -50,6 +50,9 @@ export function buildContract({ scan, logReport, missionReport }) {
         discovered: scan.mcp.discovered,
         name: scan.mcp.name || "",
         tool_count: scan.mcp.tool_count || 0,
+        spec_version: scan.mcp.spec_version || "",
+        spec_version_compliant: scan.mcp.spec_version_compliant !== false,
+        tool_description_hash: scan.mcp.tool_description_hash || "",
         dangerous_tool_count: scan.mcp.dangerous_tools?.length || 0,
         unapproved_dangerous_tool_count: scan.mcp.unapproved_dangerous_tools?.length || 0,
         dangerous_tools: (scan.mcp.dangerous_tools || []).map((tool) => ({
@@ -57,7 +60,7 @@ export function buildContract({ scan, logReport, missionReport }) {
           categories: tool.categories,
           requires_approval: tool.requires_approval,
         })),
-      } : { source: null, discovered: false },
+      } : { source: null, discovered: false, spec_version_compliant: true },
       agent_skills: scan.agent_skills?.discovered ? {
         source: scan.agent_skills.source,
         discovered: true,
@@ -65,6 +68,7 @@ export function buildContract({ scan, logReport, missionReport }) {
       } : { source: scan.agent_skills?.source || null, discovered: false, skill_count: 0 },
     },
     readiness: scan.readiness,
+    cup: cup(scan, missionReport),
     missions: missionReport || {
       tested: 0,
       passed: 0,
@@ -73,7 +77,7 @@ export function buildContract({ scan, logReport, missionReport }) {
       status: "not_run_static_gate_only",
     },
     telemetry: {
-      otel_schema: "gen_ai.1.41.0",
+      otel_schema: "gen_ai.1.42.0",
     },
   };
 }
@@ -247,6 +251,19 @@ function agentSkillsIndex(scan, missionReport) {
       tool_count: scan.mcp.tool_count,
       unapproved_dangerous_tool_count: scan.mcp.unapproved_dangerous_tools.length,
     } : null,
+  };
+}
+
+function cup(scan, missionReport) {
+  const tested = missionReport?.tested || 0;
+  const userConsentOk = (scan.mcp?.unapproved_dangerous_tools?.length || 0) === 0;
+  return {
+    user_consent: {
+      tested,
+      passed: userConsentOk ? (missionReport?.passed || 0) : 0,
+      score: tested ? round((userConsentOk ? (missionReport?.passed || 0) : 0) / tested) : null,
+      violations: userConsentOk ? [] : ["unapproved_dangerous_mcp_tools"],
+    },
   };
 }
 

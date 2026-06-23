@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { scanUrl } from "./scanner.js";
+import { loadMcpManifest } from "./mcp.js";
 import { runSyntheticMissions } from "./missions.js";
 import { nowIso, readText, sha256, writeJson } from "./util.js";
 
@@ -13,6 +14,7 @@ export async function runMonitor(options = {}) {
   const checked = [];
   const changed = [];
   const unchanged = [];
+  const mcp = options.scanOptions?.mcp ? await loadMcpManifest(options.scanOptions.mcp, options.scanOptions) : null;
 
   for (const url of urls) {
     const page = await fetchPage(url, options);
@@ -21,16 +23,18 @@ export async function runMonitor(options = {}) {
       url,
       status: page.status,
       content_hash: sha256(page.text),
+      mcp_tool_description_hash: mcp?.tool_description_hash || null,
       checked_at: nowIso(),
     };
     checked.push(current);
 
-    if (previous?.content_hash === current.content_hash) unchanged.push(current);
+    if (previous?.content_hash === current.content_hash && previous?.mcp_tool_description_hash === current.mcp_tool_description_hash) unchanged.push(current);
     else {
       current.previous_hash = previous?.content_hash || null;
+      current.previous_mcp_tool_description_hash = previous?.mcp_tool_description_hash || null;
       changed.push(current);
     }
-    state.pages[url] = { ...previous, ...current, last_changed_at: previous?.content_hash === current.content_hash ? previous.last_changed_at : current.checked_at };
+    state.pages[url] = { ...previous, ...current, last_changed_at: previous?.content_hash === current.content_hash && previous?.mcp_tool_description_hash === current.mcp_tool_description_hash ? previous.last_changed_at : current.checked_at };
   }
 
   await mkdir(dirname(statePath), { recursive: true });

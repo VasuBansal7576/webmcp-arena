@@ -71,7 +71,8 @@ async function fixPackCommand(argv) {
   if (!url) throw new Error(`fixpack requires a URL\n\n${usage()}`);
   const options = await scanOptions(flags);
   const scan = await scanUrl(url, options);
-  const manifest = await writeFixPack(flags.out || "fix-pack", { scan });
+  const logReport = flags.logs ? analyzeLogs(await readText(flags.logs), { emptyHtmlBytes: number(flags.emptyHtmlBytes, 800) }) : null;
+  const manifest = await writeFixPack(flags.out || "fix-pack", { scan, logReport });
   if (flags.llmExplain) {
     const findings = scan.checks.filter((item) => !item.pass);
     const explanation = await writeLlmFixExplanation(`${manifest.outDir.replace(/\/$/, "")}/llm-explanation.md`, {

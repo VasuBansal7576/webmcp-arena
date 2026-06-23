@@ -22,11 +22,14 @@ This repo is a local production CLI for proving whether a product surface works 
 - Opt-in standard missions include `create_first_api_request`, `find_refund_policy`, and `use_mcp_tool_if_available` via `--mission-ids`.
 - Mission evidence includes screenshots, AXTree text, token estimates, deterministic Prune4Web-style pricing slices, and shared mission cache reuse.
 - Diff-based monitor that hashes pages, skips unchanged pages, and reruns affected checks/missions.
+- Monitor state also tracks MCP tool-description hashes when an MCP manifest is supplied.
 - Fix pack export for `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem-details examples.
+- Fix packs can include observed agent-traffic token-load projection when logs are supplied.
 - Optional LLM fix explanation, gated by explicit provider config.
 - Local PR prep that applies fix packs on a git branch and records audit evidence. Remote PR creation requires explicit confirmation.
 - Env-backed private runner auth profiles with redacted evidence.
 - Enterprise policy audit over `.agent/contract.json`.
+- Contracts include partial CuP user-consent scoring and MCP spec-version compliance fields.
 - Repo scan for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
 - Local Solo web shell at `npm run solo`, built as a thin wrapper around the existing scanner and fix-pack path.
 - Local sourced positioning-post draft in `docs/positioning-post.md`.

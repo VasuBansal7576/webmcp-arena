@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
@@ -57,6 +57,33 @@ test("runMonitor persists hashes, skips unchanged pages, and selects affected mi
   assert.deepEqual(third.selectedMissionIds, ["find_pricing"]);
   assert.equal(third.missionReport.tested, 1);
   assert.equal(third.missionReport.results[0].mission, "find_pricing");
+});
+
+test("runMonitor treats MCP tool description hash changes as changes", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "agent-contract-monitor-mcp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const server = createServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/html" });
+    response.end(home());
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(() => resolve())));
+
+  const mcpPath = join(dir, "mcp.json");
+  const options = {
+    urls: [`http://127.0.0.1:${server.address().port}/`],
+    statePath: join(dir, "state.json"),
+    scanOptions: { mcp: mcpPath },
+  };
+
+  await writeFile(mcpPath, JSON.stringify({ protocolVersion: "2025-06-18", tools: [{ name: "search", description: "Find docs" }] }));
+  assert.equal((await runMonitor(options)).changed.length, 1);
+  assert.equal((await runMonitor(options)).unchanged.length, 1);
+
+  await writeFile(mcpPath, JSON.stringify({ protocolVersion: "2025-06-18", tools: [{ name: "search", description: "Find docs and pricing" }] }));
+  const changed = await runMonitor(options);
+  assert.equal(changed.changed.length, 1);
+  assert.notEqual(changed.changed[0].previous_mcp_tool_description_hash, changed.changed[0].mcp_tool_description_hash);
 });
 
 function home() {

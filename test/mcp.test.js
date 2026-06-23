@@ -11,6 +11,7 @@ import { scanUrl } from "../src/scanner.js";
 test("analyzeMcpManifest flags dangerous write/payment/exec tools", async () => {
   const manifest = {
     name: "billing-mcp",
+    protocolVersion: "2025-06-18",
     tools: [
       { name: "list_invoices", description: "Read invoices" },
       { name: "delete_customer", description: "Deletes a customer account" },
@@ -20,6 +21,8 @@ test("analyzeMcpManifest flags dangerous write/payment/exec tools", async () => 
   };
   const result = analyzeMcpManifest(manifest, "fixture");
   assert.equal(result.discovered, true);
+  assert.equal(result.spec_version_compliant, true);
+  assert.equal(typeof result.tool_description_hash, "string");
   assert.equal(result.tool_count, 4);
   assert.deepEqual(result.dangerous_tools.map((tool) => tool.name).sort(), ["charge_card", "delete_customer", "run_shell"].sort());
 });
@@ -52,6 +55,7 @@ test("scanUrl includes MCP checks and lowers readiness for dangerous tools", asy
 
   assert.equal(result.mcp.discovered, true);
   assert.equal(result.checks.find((check) => check.id === "mcp_discovery").pass, true);
+  assert.equal(result.checks.find((check) => check.id === "mcp_spec_version").pass, false);
   assert.equal(result.checks.find((check) => check.id === "mcp_dangerous_tools").pass, false);
   assert.ok(result.readiness.score < 100);
 });
