@@ -46,7 +46,9 @@ test("runSyntheticMissions executes phase-one missions in a real browser and reu
     "text~=(free|pricing|price|plan|startup|enterprise|solo|$)",
   ]);
   assert.ok(pricingResult.evidence.some((item) => item.type === "prune4web" && item.tokens < 50));
-  await access(pricingResult.evidence.find((item) => item.type === "prune4web_artifact").path);
+  await access(pricingResult.evidence.find((item) => item.type === "pruning_evidence").path);
+  assert.ok(first.results.every((item) => item.context_budget.pages.length >= 1));
+  assert.equal(pricingResult.context_budget.limits.claude_sonnet_200k, "fits");
   assert.equal(pricingResult.status, "passed");
   assert.match(pricingResult.summary, /Startup \$49/i);
   assert.match(first.results.find((item) => item.mission === "find_api_quickstart").summary, /GET \/v1\/contracts/i);

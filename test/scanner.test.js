@@ -47,7 +47,9 @@ test("analyzeHtml emits CPI and IPI risk signals", () => {
 
   assert.equal(pricing.structural_risk, true);
   assert.ok(pricing.cpi > 0.3 && pricing.cpi < 0.7);
+  assert.match(pricing.content_hash, /^sha256:/);
   assert.ok(page.ipi_risks.some((item) => item.severity === "critical"));
+  assert.match(page.ipi_risks[0].content_hash, /^sha256:/);
 });
 
 test("analyzeHtml detects WebArena-style interaction risks", () => {
@@ -175,7 +177,9 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.ok(checks.js_only_content.metrics.dom_tokens > 0);
   assert.equal(checks.cookie_modal.pass, true);
   assert.equal(checks.content_position_index.taxonomy, "LostInTheMiddle::ContentPositionIndex");
+  assert.equal(checks.content_position_index.dimension, "efficiency");
   assert.equal(checks.ipi_risk.taxonomy, "WebAgentSecurity::IndirectPromptInjection");
+  assert.equal(checks.ipi_risk.dimension, "safety");
   assert.equal(checks.slider_switch_interactions.pass, true);
   assert.equal(checks.datagrid_filtering.pass, true);
   assert.equal(checks.ab_test_variants.pass, true);

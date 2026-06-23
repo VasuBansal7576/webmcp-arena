@@ -14,6 +14,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, WebMCP registration markers, sampled broken links, OpenAPI quality, MCP manifests, and dangerous MCP tools.
 - Static findings carry taxonomy/framing metadata, and the JS-only check records DOM token metrics.
 - Static analysis emits Content Position Index for critical elements and IPI risk findings for suspicious hidden/accessibility instructions.
+- Findings include AWI dimensions and reproducibility hashes for element-like CPI/IPI evidence.
 - Readiness includes AWI six-axis sub-scores, and WebMCP detection includes component coverage metadata.
 - `.agent/` contract export with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, policy pack, and evidence snapshots.
 - Split-ready `.agent` spec material in `spec/`.
@@ -22,7 +23,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - GitHub composite action with optional PR comments.
 - Browser-backed synthetic missions default to `understand_company`, `find_pricing`, and `find_api_quickstart`.
 - Opt-in standard missions include `create_first_api_request`, `find_refund_policy`, and `use_mcp_tool_if_available` via `--mission-ids`.
-- Mission evidence includes screenshots, AXTree text, token estimates, deterministic Prune4Web-style pricing slices, standalone pruning artifacts, and shared mission cache reuse.
+- Mission evidence includes screenshots, AXTree text, token estimates, context-budget breakdowns, deterministic Prune4Web-style pricing slices, standalone pruning artifacts, and shared mission cache reuse.
 - Diff-based monitor that hashes pages, skips unchanged pages, and reruns affected checks/missions.
 - Monitor state also tracks MCP tool-description hashes when an MCP manifest is supplied.
 - Fix pack export for `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem-details examples.

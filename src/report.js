@@ -1,7 +1,7 @@
 export function buildReport({ scan, logReport, missionReport, contractDir }) {
   const staticFindings = (scan?.checks || [])
     .filter((item) => !item.pass)
-    .map((item) => ({ id: item.id, severity: item.severity, message: item.message, taxonomy: item.taxonomy, framing: item.framing, metrics: item.metrics, source: "static" }));
+    .map((item) => ({ id: item.id, severity: item.severity, message: item.message, taxonomy: item.taxonomy, dimension: item.dimension, framing: item.framing, metrics: item.metrics, source: "static" }));
   const logFindings = (logReport?.findings || []).map((item) => ({ ...item, source: "logs" }));
   const missionFindings = (missionReport?.results || [])
     .filter((item) => item.status !== "passed")
@@ -37,6 +37,10 @@ export function renderMarkdown(report) {
 
 ${findings}
 
+## AWI Score
+
+${awiMarkdown(report.scan?.readiness?.awi)}
+
 ## Synthetic Missions
 
 ${missions}
@@ -49,6 +53,7 @@ export function renderHtml(report) {
     : `<tr><td colspan="5">No findings.</td></tr>`;
   const checks = (report.scan?.checks || []).map((item) => `<li class="${item.pass ? "pass" : "fail"}">${item.pass ? "PASS" : "FAIL"} ${esc(item.id)} — ${esc(item.message)}</li>`).join("");
   const missions = (report.missionReport?.results || []).map((item) => `<li class="${item.status === "passed" ? "pass" : "fail"}">${esc(item.status.toUpperCase())} ${esc(item.mission)} — ${esc(item.summary)}${item.screenshot_path ? ` <span class="muted">screenshot: ${esc(item.screenshot_path)}</span>` : ""}</li>`).join("") || "<li>Not run.</li>";
+  const awiRows = Object.entries(report.scan?.readiness?.awi?.axes || {}).map(([axis, score]) => `<tr><td>${esc(axis)}</td><td>${esc(score)}/20</td></tr>`).join("") || `<tr><td colspan="2">Not available.</td></tr>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -75,6 +80,8 @@ export function renderHtml(report) {
   <div class="score">${esc(report.score ?? "n/a")} <span class="muted">${esc(report.level)}</span></div>
   <h2>Findings</h2>
   <table><thead><tr><th>Severity</th><th>Source</th><th>ID</th><th>Taxonomy</th><th>Evidence</th></tr></thead><tbody>${rows}</tbody></table>
+  <h2>AWI Score</h2>
+  <table><thead><tr><th>Axis</th><th>Score</th></tr></thead><tbody>${awiRows}</tbody></table>
   <h2>Static Checks</h2>
   <ul>${checks}</ul>
   <h2>Synthetic Missions</h2>
@@ -83,6 +90,11 @@ export function renderHtml(report) {
 </body>
 </html>
 `;
+}
+
+function awiMarkdown(awi) {
+  if (!awi?.axes) return "- Not available.";
+  return Object.entries(awi.axes).map(([axis, score]) => `- ${axis}: ${score}/20`).join("\n");
 }
 
 function severityRank(value) {

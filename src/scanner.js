@@ -129,11 +129,12 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
   // ponytail: regex extraction is enough for static checks; use parse5 when DOM mutation fidelity matters.
   const withoutScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const bodyText = decodeEntities(withoutScripts.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+  const contentHash = sha256(html);
   const scriptCount = (html.match(/<script\b/gi) || []).length;
   const lowerHtml = html.toLowerCase();
   const headerWebMcp = Object.entries(headers).some(([key, value]) => key.toLowerCase() === "webmcp-enabled" && /^(1|true|yes)$/i.test(String(value)));
   const webmcpTools = [...html.matchAll(/\btool-name=["']([^"']+)["']/gi), ...html.matchAll(/\bname:\s*["']([^"']+)["']/gi)].map((match) => match[1].toLowerCase());
-  const criticalElements = criticalElementPositions(bodyText);
+  const criticalElements = criticalElementPositions(bodyText, contentHash);
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
@@ -152,7 +153,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
     hasJsonLd: /<script[^>]+type=["']application\/ld\+json["']/i.test(html),
     hasCookieBlocker: /\b(cookie|consent|gdpr|privacy preferences)\b/i.test(bodyText) && /\b(accept|reject|manage)\b/i.test(bodyText),
     critical_elements: criticalElements,
-    ipi_risks: ipiRisks(html),
+    ipi_risks: ipiRisks(html, contentHash),
     hasSliderSwitchRisk: /(?:role|type)=["'](?:slider|switch|range)["']|aria-valuenow|class=["'][^"']*(?:slider|switch|toggle)|data-(?:slider|switch|toggle)/i.test(html),
     hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
     hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
@@ -256,6 +257,7 @@ function check(id, pass, message, severity = "medium", details = {}) {
     severity,
     message,
     taxonomy: TAXONOMY[id] || "AgentContract::GeneralReadiness",
+    dimension: DIMENSION[id] || "discoverability",
     framing: FRAMING[id] || "",
     ...details,
   };
@@ -295,7 +297,7 @@ function webMcpCoverage(text, toolNames) {
   return { detected, annotated, score: detected.length ? annotated.length / detected.length : null };
 }
 
-function criticalElementPositions(text) {
+function criticalElementPositions(text, contentHash) {
   const tokens = estimateTokens(text);
   if (!tokens) return [];
   return [
@@ -309,11 +311,11 @@ function criticalElementPositions(text) {
     const match = pattern.exec(text);
     if (!match) return [];
     const cpi = estimateTokens(text.slice(0, match.index)) / tokens;
-    return [{ id, cpi: Math.round(cpi * 1000) / 1000, structural_risk: cpi > 0.3 && cpi < 0.7 }];
+    return [{ id, cpi: Math.round(cpi * 1000) / 1000, structural_risk: cpi > 0.3 && cpi < 0.7, content_hash: `sha256:${sha256(match[0])}`, page_content_hash: `sha256:${contentHash}` }];
   });
 }
 
-function ipiRisks(html) {
+function ipiRisks(html, contentHash) {
   const rules = [
     { severity: "high", pattern: /aria-label=["'][^"']{0,80}(ignore|disregard|instead|override|new instruction)[^"']*["']/i },
     { severity: "high", pattern: /style=["'][^"']*(?:opacity:\s*0|display:\s*none)[^"']*["'][^>]*>[^<]*(you must|your task is now|ignore previous)/i },
@@ -324,7 +326,8 @@ function ipiRisks(html) {
   return rules.flatMap((rule) => {
     const match = rule.pattern.exec(html);
     if (!match) return [];
-    return [{ severity: rule.severity, snippet: match[0].replace(/\s+/g, " ").slice(0, 220) }];
+    const snippet = match[0].replace(/\s+/g, " ").slice(0, 220);
+    return [{ severity: rule.severity, snippet, content_hash: `sha256:${sha256(snippet)}`, page_content_hash: `sha256:${contentHash}` }];
   });
 }
 
@@ -341,6 +344,27 @@ const TAXONOMY = {
   mcp_discovery: "MCP::Discovery",
   mcp_spec_version: "MCP::SpecVersion",
   webmcp_registration: "WebMCP::ToolRegistration",
+};
+
+const DIMENSION = {
+  ipi_risk: "safety",
+  cookie_modal: "safety",
+  mcp_dangerous_tools: "safety",
+  content_position_index: "efficiency",
+  js_only_content: "efficiency",
+  webmcp_registration: "standardization",
+  mcp_discovery: "standardization",
+  mcp_spec_version: "policy_compliance",
+  openapi_descriptions: "standardization",
+  openapi_examples: "standardization",
+  openapi_error_docs: "standardization",
+  openapi_auth_docs: "policy_compliance",
+  robots_txt: "discoverability",
+  sitemap: "discoverability",
+  llms_txt: "standardization",
+  json_ld: "discoverability",
+  agent_skills_discovery: "discoverability",
+  broken_links: "discoverability",
 };
 
 const FRAMING = {

@@ -168,7 +168,8 @@ async function useMcpToolIfAvailable(page, url, mission, runtime) {
 
 async function goto(page, url, evidence) {
   const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-  evidence.push({ url: page.url(), status: response?.status() || 0 });
+  const text = await page.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+  evidence.push({ url: page.url(), status: response?.status() || 0, tokens: estimateTokens(text), textLength: text.length });
 }
 
 async function findLink(page, pattern) {
@@ -242,6 +243,7 @@ function missionResult(mission, status, summary, snapshot, evidence) {
     selector_program: snapshot.selector_program || null,
     tokens_consumed: tokens,
     max_tokens: mission.maxTokens,
+    context_budget: contextBudget(evidence, mission.maxTokens),
     evidence,
     screenshot_path: evidence.find((item) => item.type === "screenshot" && item.ok)?.path || null,
     failure_reason: status === "passed" ? null : "mission_expected_content_not_found",
@@ -249,7 +251,7 @@ function missionResult(mission, status, summary, snapshot, evidence) {
 }
 
 async function finishMission(page, mission, status, summary, snapshot, evidence, runtime) {
-  if (snapshot.selector_program) evidence.push(await pruningEvidence(snapshot, runtime, mission));
+  evidence.push(await pruningEvidence(snapshot, runtime, mission));
   evidence.push(await screenshotEvidence(page, runtime, mission));
   return missionResult(mission, status, summary, snapshot, evidence);
 }
@@ -257,17 +259,32 @@ async function finishMission(page, mission, status, summary, snapshot, evidence,
 async function pruningEvidence(snapshot, runtime, mission) {
   const path = join(runtime.evidenceDir, `${runtime.key}-${mission.id}-prune4web.json`);
   const payload = {
-    selector_program: snapshot.selector_program,
+    selector_program: snapshot.selector_program || null,
     representation: snapshot.representation,
     textLength: snapshot.textLength,
     tokens: estimateTokens(snapshot.text),
   };
   try {
     await writeJson(path, payload);
-    return { type: "prune4web_artifact", ok: true, path, contentType: "application/json" };
+    return { type: "pruning_evidence", ok: true, path, contentType: "application/json" };
   } catch (error) {
-    return { type: "prune4web_artifact", ok: false, path, error: error.message };
+    return { type: "pruning_evidence", ok: false, path, error: error.message };
   }
+}
+
+function contextBudget(evidence, maxTokens) {
+  const pages = evidence.filter((item) => item.url).map((item) => ({ url: item.url, tokens: item.tokens || 0 }));
+  const total = pages.reduce((sum, item) => sum + item.tokens, 0);
+  return {
+    total_tokens: total,
+    max_tokens: maxTokens,
+    pages,
+    limits: {
+      claude_sonnet_200k: total <= 200000 ? "fits" : "exceeds",
+      gpt_4o_128k: total <= 128000 ? "fits" : "exceeds",
+      claude_haiku_100k: total <= 100000 ? "fits" : "exceeds",
+    },
+  };
 }
 
 async function screenshotEvidence(page, runtime, mission) {
