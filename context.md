@@ -45,15 +45,28 @@ npm run release:check
 npm pack --dry-run
 ```
 
+## Interpretation Boundaries
+
+- AWI six-axis scoring is derived from local scanner signals; it is not a validated industry benchmark score.
+- CuP scoring is local policy-dimension scoring over current contract evidence; it is not a full ST-WebAgentBench reproduction.
+- WebMCP component coverage is static detection of annotations/markers; it is not real browser tool execution.
+- Cost-at-scale is a token-load projection from observed logs and DOM token metrics; it is not provider billing proof.
+- Smoke artifacts are local proof that the CLI paths run; they are not customer or production proof.
+
 ## Not Proven Here
 
 - Customer log access.
+- Real production traffic.
 - Company pilots or LOIs.
+- Real enterprise deployment.
+- Real MCP server in the wild.
 - Public article/channel publication.
 - Public package publication.
 - Public standard adoption.
 - GitHub stars or external usage.
 - 10-site real-world audit corpus.
+- Corpus-level performance claims.
+- Compliance buyer validation.
 - Checkout/signup/payment missions.
 - WebMCP tool execution.
 - Unreviewed auto-PR behavior.
