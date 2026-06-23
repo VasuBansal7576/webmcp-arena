@@ -38,7 +38,7 @@ This folder is the split-ready `.agent/` contract specification. The implementat
 
 ## Compatibility
 
-The spec wraps existing agent-facing conventions instead of betting on one winner: `llms.txt`, MCP manifests, agent-skills indexes, OpenAPI, and future WebMCP-style browser affordances.
+The spec wraps existing agent-facing conventions instead of betting on one winner: `llms.txt`, MCP manifests, agent-skills indexes, OpenAPI, and WebMCP-style browser affordances.
 
 ## Validation
 

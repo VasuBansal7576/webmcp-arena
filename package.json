@@ -14,6 +14,7 @@
     "docs/",
     "examples/",
     "schema/",
+    "scripts/",
     "spec/",
     "src/"
   ],
@@ -21,6 +22,7 @@
     "test": "node --test",
     "check": "npm test",
     "smoke": "node scripts/smoke-local.js",
+    "solo": "node scripts/solo-server.js",
     "release:check": "node scripts/release-check.js",
     "gate": "node ./bin/agent-contract.js gate"
   },

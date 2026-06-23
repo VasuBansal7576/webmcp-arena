@@ -18,6 +18,7 @@ OPENAI_API_KEY=... AGENT_CONTRACT_LLM_MODEL=... node ./bin/agent-contract.js fix
 node ./bin/agent-contract.js pr-prep fix-pack --repo /path/to/repo --dry-run
 node ./bin/agent-contract.js policy-audit .agent/contract.json --out .agent/audit/policy
 node ./bin/agent-contract.js repo-scan /path/to/repo --json
+npm run solo
 ```
 
 The gate defaults to `report` mode. Use `--mode blocking` only after calibration.
@@ -25,7 +26,7 @@ The gate defaults to `report` mode. Use `--mode blocking` only after calibration
 ## What Exists
 
 - NGINX and CloudFront access-log parsing for ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended, exposed through both `agent-contract logs` and `agent-traffic-parser`.
-- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
+- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, WebMCP registration markers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
 - Portable `.agent/` output with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, and evidence snapshots.
 - Split-ready `.agent` spec material in `spec/`.
 - HTML/Markdown/JSON reports and OTLP JSON payloads with `gen_ai.*` attributes.
@@ -39,6 +40,7 @@ The gate defaults to `report` mode. Use `--mode blocking` only after calibration
 - Repo scan audits local checkouts for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
 - Enterprise policy audit writes JSON and Markdown compliance reports from `.agent/contract.json`.
 - Private runner auth profiles use env-backed secrets only and record redacted audit metadata.
+- Local Solo web shell reuses the CLI scanner and fix-pack path at `npm run solo`.
 
 Auth profile values must reference env vars:
 

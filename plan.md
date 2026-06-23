@@ -497,14 +497,15 @@ The Enterprise contracts are the real business. Each one is $3k–$60k. At 15 co
 
 Priority order. Do not skip ahead.
 
-- [ ] **Day 1**: Make `context.md` the repo truth file and delete stale root plans/diagrams from the live working tree.
-- [ ] **Day 1–2**: Extract the current `.agent/` contract schema/docs into an `agent-contract-spec` repo or package folder. Keep it MIT and compatible with `llms.txt`, agent-skills, MCP, and future WebMCP hooks.
-- [ ] **Day 2–3**: Decide whether `src/logs.js` becomes a standalone `agent-traffic-parser` package or stays inside this CLI for now. If split, reuse the existing parser and tests.
-- [ ] **Day 3**: Fact-check the market claims in this plan. Add inline source links or soften the copy before publishing anything.
+- [x] **Day 1**: Make `context.md` the repo truth file and delete stale root plans/diagrams from the live working tree.
+- [x] **Day 1–2**: Extract the current `.agent/` contract schema/docs into an `agent-contract-spec` repo or package folder. Keep it MIT and compatible with `llms.txt`, agent-skills, MCP, and future WebMCP hooks.
+- [x] **Day 2–3**: Decide whether `src/logs.js` becomes a standalone `agent-traffic-parser` package or stays inside this CLI for now. If split, reuse the existing parser and tests.
+- [x] **Day 3**: Fact-check the market claims in this plan. Add inline source links or soften the copy before publishing anything.
 - [ ] **Day 4–6**: Publish a positioning post from sourced claims only: "GEO gets you recommended. Agent readiness gets you bought."
-- [ ] **Day 6–9**: Build the thinnest Solo web shell around the existing CLI scanner/fixpack path. No duplicate scanner logic.
-- [ ] **Day 9–11**: Add WebMCP detection only after verifying the current public/browser spec shape. Keep the implementation as static checks first.
-- [ ] **Day 11–14**: Prepare the existing npm package/GitHub Action for distribution: package name decision, README commands, release dry run, action example, and one public demo repo.
+- [x] **Day 6–9**: Build the thinnest Solo web shell around the existing CLI scanner/fixpack path. No duplicate scanner logic.
+- [x] **Day 9–11**: Add WebMCP detection only after verifying the current public/browser spec shape. Keep the implementation as static checks first.
+- [x] **Day 11–14**: Prepare the existing npm package/GitHub Action for distribution: package name decision, README commands, release dry run, and action example.
+- [ ] **Blocked on publish/push**: Create one public demo repo after the branch/package is published.
 
 ---
 

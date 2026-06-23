@@ -7,7 +7,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - CLI commands: `logs`, `scan`, `contract`, `gate`, `monitor`, `fixpack`, `pr-prep`, `policy-audit`, and `repo-scan`.
 - Standalone `agent-traffic-parser` binary that reuses the `logs` command.
 - Passive analytics for NGINX and CloudFront logs, including ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended.
-- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, sampled broken links, OpenAPI quality, MCP manifests, and dangerous MCP tools.
+- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, WebMCP registration markers, sampled broken links, OpenAPI quality, MCP manifests, and dangerous MCP tools.
 - `.agent/` contract export with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, policy pack, and evidence snapshots.
 - Split-ready `.agent` spec material in `spec/`.
 - Report-only CI gate with HTML, Markdown, JSON, and OTLP JSON trace outputs.
@@ -21,6 +21,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Env-backed private runner auth profiles with redacted evidence.
 - Enterprise policy audit over `.agent/contract.json`.
 - Repo scan for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
+- Local Solo web shell at `npm run solo`, built as a thin wrapper around the existing scanner and fix-pack path.
 
 ## Proven Locally
 
@@ -40,6 +41,7 @@ npm pack --dry-run
 - GitHub stars or external usage.
 - 10-site real-world audit corpus.
 - Checkout/signup/payment missions.
+- WebMCP tool execution.
 - Unreviewed auto-PR behavior.
 
 ## Current Rule

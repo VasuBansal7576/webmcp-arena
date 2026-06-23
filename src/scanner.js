@@ -16,7 +16,7 @@ export async function scanUrl(input, options = {}) {
   const mcp = options.mcp ? await loadMcpManifest(options.mcp, options) : null;
   const agentSkillsRequired = Boolean(options.agentSkills);
   const agentSkills = await loadAgentSkills(options.agentSkills || new URL("/.agent/agent-skills/index.json", url).href, options);
-  const page = analyzeHtml(html, url);
+  const page = analyzeHtml(html, url, home.headers);
   const links = await checkLinks(page.links, url, options);
 
   const checks = [
@@ -29,6 +29,7 @@ export async function scanUrl(input, options = {}) {
     check("slider_switch_interactions", !page.hasSliderSwitchRisk, page.hasSliderSwitchRisk ? "Slider/switch controls detected; verify keyboard and ARIA behavior for agents" : "No obvious slider/switch controls detected", "low"),
     check("datagrid_filtering", !page.hasDatagridRisk, page.hasDatagridRisk ? "Datagrid or filterable table detected; verify filtering is represented in accessible controls" : "No obvious datagrid filtering surface detected", "low"),
     check("ab_test_variants", !page.hasAbVariantRisk, page.hasAbVariantRisk ? "A/B or experiment variant markers detected; run missions against stable variants" : "No obvious A/B variant markers detected", "low"),
+    check("webmcp_registration", page.hasWebMcp, page.hasWebMcp ? "WebMCP tool registration markers detected" : "No WebMCP tool registration markers detected", "info"),
     check("broken_links", links.broken.length === 0, links.broken.length ? `${links.broken.length} sampled links failed` : "Sampled links reachable", "high"),
     ...openApiChecks(openapi),
     ...mcpChecks(mcp),
@@ -67,7 +68,7 @@ async function fetchText(url, options = {}) {
       headers: { "user-agent": options.userAgent || DEFAULT_UA, accept: "text/html,application/json,text/plain,*/*", ...(options.auth?.headers || {}) },
     });
     const text = await response.text();
-    return { ok: response.ok, url: response.url, status: response.status, contentType: response.headers.get("content-type") || "", text };
+    return { ok: response.ok, url: response.url, status: response.status, contentType: response.headers.get("content-type") || "", headers: Object.fromEntries(response.headers.entries()), text };
   } finally {
     clearTimeout(timeout);
   }
@@ -77,7 +78,7 @@ async function optionalFetch(url, options) {
   try {
     return await fetchText(url, options);
   } catch (error) {
-    return { ok: false, url: url.href, status: 0, contentType: "", text: "", error: error.message };
+    return { ok: false, url: url.href, status: 0, contentType: "", headers: {}, text: "", error: error.message };
   }
 }
 
@@ -95,18 +96,19 @@ async function fetchOpenApi(input, options) {
 async function fetchInput(input, options) {
   if (/^https?:\/\//i.test(input)) return fetchText(input, options);
   try {
-    return { ok: true, url: input, status: 200, contentType: "application/json", text: await readText(input) };
+    return { ok: true, url: input, status: 200, contentType: "application/json", headers: {}, text: await readText(input) };
   } catch (error) {
-    return { ok: false, url: input, status: 0, contentType: "", text: "", error: error.message };
+    return { ok: false, url: input, status: 0, contentType: "", headers: {}, text: "", error: error.message };
   }
 }
 
-export function analyzeHtml(html, url = new URL("https://example.invalid")) {
+export function analyzeHtml(html, url = new URL("https://example.invalid"), headers = {}) {
   // ponytail: regex extraction is enough for static checks; use parse5 when DOM mutation fidelity matters.
   const withoutScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const bodyText = decodeEntities(withoutScripts.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   const scriptCount = (html.match(/<script\b/gi) || []).length;
   const lowerHtml = html.toLowerCase();
+  const headerWebMcp = Object.entries(headers).some(([key, value]) => key.toLowerCase() === "webmcp-enabled" && /^(1|true|yes)$/i.test(String(value)));
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
@@ -126,6 +128,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid")) {
     hasSliderSwitchRisk: /(?:role|type)=["'](?:slider|switch|range)["']|aria-valuenow|class=["'][^"']*(?:slider|switch|toggle)|data-(?:slider|switch|toggle)/i.test(html),
     hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
     hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
+    hasWebMcp: headerWebMcp || /\b(?:navigator|document)\.modelContext\b|\.registerTool\s*\(|@mcp-b\/global|\btool-(?:name|description)=["']/i.test(html),
     looksJsOnly: bodyText.length < 300 && scriptCount > 3,
     links: [...new Set(links)].slice(0, 100),
     sampleText: bodyText.slice(0, 500),
@@ -216,8 +219,8 @@ function check(id, pass, message, severity = "medium") {
 }
 
 function scoreChecks(checks) {
-  const weight = { critical: 30, high: 15, medium: 8, low: 3 };
-  const lost = checks.filter((item) => !item.pass).reduce((sum, item) => sum + (weight[item.severity] || 5), 0);
+  const weight = { critical: 30, high: 15, medium: 8, low: 3, info: 0 };
+  const lost = checks.filter((item) => !item.pass).reduce((sum, item) => sum + (weight[item.severity] ?? 5), 0);
   return clamp(100 - lost, 0, 100);
 }
 

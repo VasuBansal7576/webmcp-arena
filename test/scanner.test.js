@@ -48,6 +48,19 @@ test("analyzeHtml detects WebArena-style interaction risks", () => {
   assert.equal(page.hasAbVariantRisk, true);
 });
 
+test("analyzeHtml detects WebMCP markers", () => {
+  const html = `<!doctype html>
+    <html><body>
+      <script type="module">
+        navigator.modelContext.registerTool({ name: "checkout", description: "Complete checkout" });
+      </script>
+      <form tool-name="contact_sales" tool-description="Send contact request"></form>
+    </body></html>`;
+
+  assert.equal(analyzeHtml(html).hasWebMcp, true);
+  assert.equal(analyzeHtml("<html></html>", undefined, { "webmcp-enabled": "true" }).hasWebMcp, true);
+});
+
 test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON", async (t) => {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url, "http://127.0.0.1").pathname;
@@ -128,6 +141,8 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(checks.slider_switch_interactions.pass, true);
   assert.equal(checks.datagrid_filtering.pass, true);
   assert.equal(checks.ab_test_variants.pass, true);
+  assert.equal(checks.webmcp_registration.pass, false);
+  assert.equal(checks.webmcp_registration.severity, "info");
   assert.equal(checks.broken_links.pass, false);
   assert.equal(checks.openapi_descriptions.pass, true);
   assert.equal(checks.openapi_examples.pass, true);
