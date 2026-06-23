@@ -23,6 +23,8 @@ export function buildOtlpTrace({ command, scan, logReport, missionReport, status
           attributes: [
             attr("gen_ai.operation.name", "execute_tool"),
             attr("gen_ai.system", "agent_contract"),
+            attr("gen_ai.agent.name", "agent_contract_scanner"),
+            attr("gen_ai.workflow.name", "agent_contract_cli"),
             attr("agent_contract.command", command),
             attr("agent_contract.status", status),
             attr("agent_contract.url", scan?.source?.url || ""),
@@ -30,7 +32,7 @@ export function buildOtlpTrace({ command, scan, logReport, missionReport, status
             attr("agent_contract.passive.total_agent_requests", logReport?.total_agent_requests ?? 0),
             attr("agent_contract.missions.tested", missionReport?.tested ?? 0),
             attr("agent_contract.missions.failed", missionReport?.failed ?? 0),
-            attr("agent_contract.semconv", "gen_ai.1.41.0"),
+            attr("agent_contract.semconv", "gen_ai.1.42.0"),
           ],
         }],
       }],

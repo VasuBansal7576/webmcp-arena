@@ -28,6 +28,7 @@ test("analyzeHtml detects JS-only pages, JSON-LD, cookie blockers, and links", (
   assert.equal(page.hasJsonLd, true);
   assert.equal(page.hasCookieBlocker, true);
   assert.equal(page.looksJsOnly, true);
+  assert.ok(page.dom_tokens > 0);
   assert.equal(page.scriptCount, 4);
   assert.deepEqual(page.links, ["https://example.test/docs", "https://api.example.test/spec"]);
 });
@@ -137,12 +138,15 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(checks.llms_txt.pass, true);
   assert.equal(checks.json_ld.pass, true);
   assert.equal(checks.js_only_content.pass, true);
+  assert.equal(checks.js_only_content.taxonomy, "AWI::DOMComplexity");
+  assert.ok(checks.js_only_content.metrics.dom_tokens > 0);
   assert.equal(checks.cookie_modal.pass, true);
   assert.equal(checks.slider_switch_interactions.pass, true);
   assert.equal(checks.datagrid_filtering.pass, true);
   assert.equal(checks.ab_test_variants.pass, true);
   assert.equal(checks.webmcp_registration.pass, false);
   assert.equal(checks.webmcp_registration.severity, "info");
+  assert.equal(result.checks.every((check) => typeof check.taxonomy === "string"), true);
   assert.equal(checks.broken_links.pass, false);
   assert.equal(checks.openapi_descriptions.pass, true);
   assert.equal(checks.openapi_examples.pass, true);

@@ -12,9 +12,11 @@ This repo is a local production CLI for proving whether a product surface works 
 - Standalone `agent-traffic-parser` binary that reuses the `logs` command.
 - Passive analytics for NGINX and CloudFront logs, including ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended.
 - Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, WebMCP registration markers, sampled broken links, OpenAPI quality, MCP manifests, and dangerous MCP tools.
+- Static findings carry taxonomy/framing metadata, and the JS-only check records DOM token metrics.
 - `.agent/` contract export with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, policy pack, and evidence snapshots.
 - Split-ready `.agent` spec material in `spec/`.
 - Report-only CI gate with HTML, Markdown, JSON, and OTLP JSON trace outputs.
+- OTLP JSON uses current GenAI semconv-aligned agent/workflow attributes without faking model calls.
 - GitHub composite action with optional PR comments.
 - Browser-backed synthetic missions default to `understand_company`, `find_pricing`, and `find_api_quickstart`.
 - Opt-in standard missions include `create_first_api_request`, `find_refund_policy`, and `use_mcp_tool_if_available` via `--mission-ids`.

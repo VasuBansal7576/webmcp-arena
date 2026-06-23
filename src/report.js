@@ -1,11 +1,11 @@
 export function buildReport({ scan, logReport, missionReport, contractDir }) {
   const staticFindings = (scan?.checks || [])
     .filter((item) => !item.pass)
-    .map((item) => ({ id: item.id, severity: item.severity, message: item.message, source: "static" }));
+    .map((item) => ({ id: item.id, severity: item.severity, message: item.message, taxonomy: item.taxonomy, framing: item.framing, metrics: item.metrics, source: "static" }));
   const logFindings = (logReport?.findings || []).map((item) => ({ ...item, source: "logs" }));
   const missionFindings = (missionReport?.results || [])
     .filter((item) => item.status !== "passed")
-    .map((item) => ({ id: item.mission, severity: "high", message: item.summary, source: "missions" }));
+    .map((item) => ({ id: item.mission, severity: "high", message: item.summary, taxonomy: "AgentContract::SyntheticMissionFailure", source: "missions" }));
   return {
     generated_at: new Date().toISOString(),
     score: scan?.readiness?.score ?? null,
@@ -21,7 +21,7 @@ export function buildReport({ scan, logReport, missionReport, contractDir }) {
 
 export function renderMarkdown(report) {
   const findings = report.findings.length
-    ? report.findings.map((item) => `- **${item.severity}** \`${item.source}:${item.id}\` ${item.message}`).join("\n")
+    ? report.findings.map((item) => `- **${item.severity}** \`${item.source}:${item.id}\` ${item.taxonomy ? `\`${item.taxonomy}\` ` : ""}${item.message}${item.framing ? ` ${item.framing}` : ""}`).join("\n")
     : "- No findings.";
   const missions = report.missionReport?.results?.length
     ? report.missionReport.results.map((item) => `- **${item.status}** \`${item.mission}\` ${item.summary}${item.screenshot_path ? ` (screenshot: ${item.screenshot_path})` : ""}`).join("\n")
@@ -45,8 +45,8 @@ ${missions}
 
 export function renderHtml(report) {
   const rows = report.findings.length
-    ? report.findings.map((item) => `<tr><td>${esc(item.severity)}</td><td>${esc(item.source)}</td><td><code>${esc(item.id)}</code></td><td>${esc(item.message)}</td></tr>`).join("")
-    : `<tr><td colspan="4">No findings.</td></tr>`;
+    ? report.findings.map((item) => `<tr><td>${esc(item.severity)}</td><td>${esc(item.source)}</td><td><code>${esc(item.id)}</code></td><td>${esc(item.taxonomy || "")}</td><td>${esc(item.message)}${item.framing ? `<p class="muted">${esc(item.framing)}</p>` : ""}</td></tr>`).join("")
+    : `<tr><td colspan="5">No findings.</td></tr>`;
   const checks = (report.scan?.checks || []).map((item) => `<li class="${item.pass ? "pass" : "fail"}">${item.pass ? "PASS" : "FAIL"} ${esc(item.id)} — ${esc(item.message)}</li>`).join("");
   const missions = (report.missionReport?.results || []).map((item) => `<li class="${item.status === "passed" ? "pass" : "fail"}">${esc(item.status.toUpperCase())} ${esc(item.mission)} — ${esc(item.summary)}${item.screenshot_path ? ` <span class="muted">screenshot: ${esc(item.screenshot_path)}</span>` : ""}</li>`).join("") || "<li>Not run.</li>";
   return `<!doctype html>
@@ -74,7 +74,7 @@ export function renderHtml(report) {
   <p class="muted">${esc(report.url || "n/a")} · generated ${esc(report.generated_at)}</p>
   <div class="score">${esc(report.score ?? "n/a")} <span class="muted">${esc(report.level)}</span></div>
   <h2>Findings</h2>
-  <table><thead><tr><th>Severity</th><th>Source</th><th>ID</th><th>Evidence</th></tr></thead><tbody>${rows}</tbody></table>
+  <table><thead><tr><th>Severity</th><th>Source</th><th>ID</th><th>Taxonomy</th><th>Evidence</th></tr></thead><tbody>${rows}</tbody></table>
   <h2>Static Checks</h2>
   <ul>${checks}</ul>
   <h2>Synthetic Missions</h2>

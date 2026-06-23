@@ -24,7 +24,13 @@ export async function scanUrl(input, options = {}) {
     check("sitemap", sitemap.ok, sitemap.ok ? "sitemap.xml found" : "sitemap.xml missing or unreachable", "medium"),
     check("llms_txt", llms.ok, llms.ok ? "llms.txt found" : "llms.txt missing", "high"),
     check("json_ld", page.hasJsonLd, page.hasJsonLd ? "JSON-LD found" : "No JSON-LD/schema.org block found", "medium"),
-    check("js_only_content", !page.looksJsOnly, page.looksJsOnly ? "Page has low readable HTML and relies on scripts" : "Readable HTML present", "critical"),
+    check(
+      "js_only_content",
+      !page.looksJsOnly,
+      page.looksJsOnly ? "Page has low readable HTML and relies on scripts" : "Readable HTML present",
+      "critical",
+      { metrics: { dom_tokens: page.dom_tokens, script_count: page.scriptCount, text_length: page.textLength } },
+    ),
     check("cookie_modal", !page.hasCookieBlocker, page.hasCookieBlocker ? "Cookie/consent blocker text detected" : "No obvious cookie blocker text detected", "medium"),
     check("slider_switch_interactions", !page.hasSliderSwitchRisk, page.hasSliderSwitchRisk ? "Slider/switch controls detected; verify keyboard and ARIA behavior for agents" : "No obvious slider/switch controls detected", "low"),
     check("datagrid_filtering", !page.hasDatagridRisk, page.hasDatagridRisk ? "Datagrid or filterable table detected; verify filtering is represented in accessible controls" : "No obvious datagrid filtering surface detected", "low"),
@@ -122,6 +128,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
   return {
     title: html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || "",
     textLength: bodyText.length,
+    dom_tokens: estimateTokens(bodyText),
     scriptCount,
     hasJsonLd: /<script[^>]+type=["']application\/ld\+json["']/i.test(html),
     hasCookieBlocker: /\b(cookie|consent|gdpr|privacy preferences)\b/i.test(bodyText) && /\b(accept|reject|manage)\b/i.test(bodyText),
@@ -214,8 +221,16 @@ function agentSkillsChecks(agentSkills, required) {
   ];
 }
 
-function check(id, pass, message, severity = "medium") {
-  return { id, pass: Boolean(pass), severity, message };
+function check(id, pass, message, severity = "medium", details = {}) {
+  return {
+    id,
+    pass: Boolean(pass),
+    severity,
+    message,
+    taxonomy: TAXONOMY[id] || "AgentContract::GeneralReadiness",
+    framing: FRAMING[id] || "",
+    ...details,
+  };
 }
 
 function scoreChecks(checks) {
@@ -223,6 +238,32 @@ function scoreChecks(checks) {
   const lost = checks.filter((item) => !item.pass).reduce((sum, item) => sum + (weight[item.severity] ?? 5), 0);
   return clamp(100 - lost, 0, 100);
 }
+
+function estimateTokens(text) {
+  return Math.ceil((text || "").length / 4);
+}
+
+const TAXONOMY = {
+  js_only_content: "AWI::DOMComplexity",
+  cookie_modal: "BrowserArena::PopUpBannerRemoval",
+  slider_switch_interactions: "BrowserArena::DynamicUIControl",
+  datagrid_filtering: "BrowserArena::DynamicUIControl",
+  ab_test_variants: "BrowserArena::VariantInstability",
+  broken_links: "BrowserArena::DirectNavigationBlocked",
+  mcp_dangerous_tools: "MCP::ToolRugPullRisk",
+  mcp_discovery: "MCP::Discovery",
+  webmcp_registration: "WebMCP::ToolRegistration",
+};
+
+const FRAMING = {
+  js_only_content: "Research framing: DOM-heavy or JS-only pages increase agent navigation cost before task work begins.",
+  cookie_modal: "Research framing: pop-up and consent banners are a recurring real-world browser-agent failure mode.",
+  slider_switch_interactions: "Research framing: dynamic controls often need explicit accessible state for reliable agent use.",
+  datagrid_filtering: "Research framing: filterable grids hide state unless controls are browser-readable.",
+  ab_test_variants: "Research framing: unstable variants make mission replay less trustworthy.",
+  broken_links: "Research framing: direct navigation failures block agents before task reasoning starts.",
+  mcp_dangerous_tools: "Research framing: MCP tools with side effects need explicit human-approval boundaries.",
+};
 
 function pickFetch(result) {
   return { ok: result.ok, url: result.url, status: result.status, contentType: result.contentType, bytes: result.text?.length || 0, error: result.error };
