@@ -18,6 +18,7 @@ export async function scanUrl(input, options = {}) {
   const agentSkills = await loadAgentSkills(options.agentSkills || new URL("/.agent/agent-skills/index.json", url).href, options);
   const page = analyzeHtml(html, url, home.headers);
   const links = await checkLinks(page.links, url, options);
+  const cpiRisks = page.critical_elements.filter((item) => item.structural_risk);
 
   const checks = [
     check("robots_txt", robots.ok, robots.ok ? "robots.txt found" : "robots.txt missing or unreachable", "medium"),
@@ -32,6 +33,20 @@ export async function scanUrl(input, options = {}) {
       { metrics: { dom_tokens: page.dom_tokens, script_count: page.scriptCount, text_length: page.textLength } },
     ),
     check("cookie_modal", !page.hasCookieBlocker, page.hasCookieBlocker ? "Cookie/consent blocker text detected" : "No obvious cookie blocker text detected", "medium"),
+    check(
+      "content_position_index",
+      cpiRisks.length === 0,
+      cpiRisks.length ? `${cpiRisks.length} critical elements sit in the transformer middle-context risk zone` : "Critical elements are not in the middle-context risk zone",
+      "medium",
+      { elements: page.critical_elements },
+    ),
+    check(
+      "ipi_risk",
+      page.ipi_risks.length === 0,
+      page.ipi_risks.length ? `${page.ipi_risks.length} indirect prompt-injection patterns detected` : "No indirect prompt-injection patterns detected",
+      page.ipi_risks.some((item) => item.severity === "critical") ? "critical" : page.ipi_risks.length ? "high" : "low",
+      { findings: page.ipi_risks },
+    ),
     check("slider_switch_interactions", !page.hasSliderSwitchRisk, page.hasSliderSwitchRisk ? "Slider/switch controls detected; verify keyboard and ARIA behavior for agents" : "No obvious slider/switch controls detected", "low"),
     check("datagrid_filtering", !page.hasDatagridRisk, page.hasDatagridRisk ? "Datagrid or filterable table detected; verify filtering is represented in accessible controls" : "No obvious datagrid filtering surface detected", "low"),
     check("ab_test_variants", !page.hasAbVariantRisk, page.hasAbVariantRisk ? "A/B or experiment variant markers detected; run missions against stable variants" : "No obvious A/B variant markers detected", "low"),
@@ -118,6 +133,7 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
   const lowerHtml = html.toLowerCase();
   const headerWebMcp = Object.entries(headers).some(([key, value]) => key.toLowerCase() === "webmcp-enabled" && /^(1|true|yes)$/i.test(String(value)));
   const webmcpTools = [...html.matchAll(/\btool-name=["']([^"']+)["']/gi), ...html.matchAll(/\bname:\s*["']([^"']+)["']/gi)].map((match) => match[1].toLowerCase());
+  const criticalElements = criticalElementPositions(bodyText);
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
@@ -135,6 +151,8 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
     scriptCount,
     hasJsonLd: /<script[^>]+type=["']application\/ld\+json["']/i.test(html),
     hasCookieBlocker: /\b(cookie|consent|gdpr|privacy preferences)\b/i.test(bodyText) && /\b(accept|reject|manage)\b/i.test(bodyText),
+    critical_elements: criticalElements,
+    ipi_risks: ipiRisks(html),
     hasSliderSwitchRisk: /(?:role|type)=["'](?:slider|switch|range)["']|aria-valuenow|class=["'][^"']*(?:slider|switch|toggle)|data-(?:slider|switch|toggle)/i.test(html),
     hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
     hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
@@ -277,8 +295,43 @@ function webMcpCoverage(text, toolNames) {
   return { detected, annotated, score: detected.length ? annotated.length / detected.length : null };
 }
 
+function criticalElementPositions(text) {
+  const tokens = estimateTokens(text);
+  if (!tokens) return [];
+  return [
+    ["pricing", /\b(pricing|plans?|enterprise|startup|\$\d+)/i],
+    ["api_quickstart", /\b(api quickstart|quickstart|GET \/|POST \/|curl\b)/i],
+    ["cta", /\b(get started|start trial|book demo|contact sales|sign up|signup)\b/i],
+    ["contact_form", /\b(contact|sales|email|message)\b/i],
+    ["mcp_endpoint", /\b(mcp|model context protocol|\.well-known\/mcp)\b/i],
+    ["checkout", /\b(checkout|cart|payment|subscribe)\b/i],
+  ].flatMap(([id, pattern]) => {
+    const match = pattern.exec(text);
+    if (!match) return [];
+    const cpi = estimateTokens(text.slice(0, match.index)) / tokens;
+    return [{ id, cpi: Math.round(cpi * 1000) / 1000, structural_risk: cpi > 0.3 && cpi < 0.7 }];
+  });
+}
+
+function ipiRisks(html) {
+  const rules = [
+    { severity: "high", pattern: /aria-label=["'][^"']{0,80}(ignore|disregard|instead|override|new instruction)[^"']*["']/i },
+    { severity: "high", pattern: /style=["'][^"']*(?:opacity:\s*0|display:\s*none)[^"']*["'][^>]*>[^<]*(you must|your task is now|ignore previous)/i },
+    { severity: "medium", pattern: /role=["']note["'][^>]*>[^<]*(click|send|transfer|ignore|do not)/i },
+    { severity: "medium", pattern: /<span[^>]*class=["'][^"']*(?:sr-only|visually-hidden|hidden)[^"']*["'][^>]*>[^<]*(ignore|instead|new goal)/i },
+    { severity: "critical", pattern: /(send|exfiltrate|post).{0,80}(token|cookie|session|credential)/i },
+  ];
+  return rules.flatMap((rule) => {
+    const match = rule.pattern.exec(html);
+    if (!match) return [];
+    return [{ severity: rule.severity, snippet: match[0].replace(/\s+/g, " ").slice(0, 220) }];
+  });
+}
+
 const TAXONOMY = {
   js_only_content: "AWI::DOMComplexity",
+  content_position_index: "LostInTheMiddle::ContentPositionIndex",
+  ipi_risk: "WebAgentSecurity::IndirectPromptInjection",
   cookie_modal: "BrowserArena::PopUpBannerRemoval",
   slider_switch_interactions: "BrowserArena::DynamicUIControl",
   datagrid_filtering: "BrowserArena::DynamicUIControl",
@@ -292,6 +345,8 @@ const TAXONOMY = {
 
 const FRAMING = {
   js_only_content: "Research framing: DOM-heavy or JS-only pages increase agent navigation cost before task work begins.",
+  content_position_index: "Research framing: middle-positioned critical content is more likely to be missed by long-context transformer attention.",
+  ipi_risk: "Research framing: hidden or accessibility-only imperative instructions can hijack web agents through the page representation they consume.",
   cookie_modal: "Research framing: pop-up and consent banners are a recurring real-world browser-agent failure mode.",
   slider_switch_interactions: "Research framing: dynamic controls often need explicit accessible state for reliable agent use.",
   datagrid_filtering: "Research framing: filterable grids hide state unless controls are browser-readable.",

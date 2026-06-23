@@ -72,7 +72,8 @@ async function fixPackCommand(argv) {
   const options = await scanOptions(flags);
   const scan = await scanUrl(url, options);
   const logReport = flags.logs ? analyzeLogs(await readText(flags.logs), { emptyHtmlBytes: number(flags.emptyHtmlBytes, 800) }) : null;
-  const manifest = await writeFixPack(flags.out || "fix-pack", { scan, logReport });
+  const missionReport = flags.missions ? await runSyntheticMissions(url, missionOptions(flags, scan, flags.out || "fix-pack", options.auth)) : null;
+  const manifest = await writeFixPack(flags.out || "fix-pack", { scan, logReport, missionReport });
   if (flags.llmExplain) {
     const findings = scan.checks.filter((item) => !item.pass);
     const explanation = await writeLlmFixExplanation(`${manifest.outDir.replace(/\/$/, "")}/llm-explanation.md`, {
@@ -167,7 +168,7 @@ async function gateCommand(argv) {
   if (flags.otelEndpoint) await sendTelemetry(flags.otelEndpoint, telemetry);
 
   const verdict = mode === "report" ? "REPORT" : status.ok ? "PASS" : mode === "warning" ? "WARN" : "FAIL";
-  const line = `agent-contract gate: ${verdict} score=${scan.readiness.score} findings=${status.findingCount} mode=${mode} contract=${contractDir}`;
+  const line = `agent-contract gate: ${verdict} score=${scan.readiness.score} cup=${status.cup.status} findings=${status.findingCount} mode=${mode} contract=${contractDir}`;
   if (flags.json) console.log(JSON.stringify({ ...status, mode, score: scan.readiness.score, report }, null, 2));
   else console.log(line);
 
@@ -180,15 +181,28 @@ function gateStatus(scan, logReport, missionReport, minScore) {
     ...(logReport?.findings || []).filter((item) => item.severity === "critical").map((item) => item.message),
   ];
   const missionFailures = (missionReport?.results || []).filter((item) => item.status !== "passed").map((item) => item.summary);
+  const cupViolations = cupViolationsFor(scan, logReport, missionReport);
   const scoreOk = scan.readiness.score >= minScore;
   return {
-    ok: scoreOk && critical.length === 0 && missionFailures.length === 0,
+    ok: scoreOk && critical.length === 0 && missionFailures.length === 0 && cupViolations.length === 0,
     minScore,
     findingCount: scan.checks.filter((item) => !item.pass).length + (logReport?.findings?.length || 0) + missionFailures.length,
     critical,
     missionFailures,
-    reason: scoreOk ? critical[0] || missionFailures[0] || null : `score ${scan.readiness.score} below ${minScore}`,
+    cup: { status: cupViolations.length ? "failed" : "passed", violations: cupViolations },
+    reason: scoreOk ? critical[0] || missionFailures[0] || cupViolations[0]?.message || null : `score ${scan.readiness.score} below ${minScore}`,
   };
+}
+
+function cupViolationsFor(scan, logReport, missionReport) {
+  const missionPassed = !missionReport || missionReport.failed === 0;
+  const failedChecks = new Set(scan.checks.filter((item) => !item.pass).map((item) => item.id));
+  return [
+    missionPassed && failedChecks.has("cookie_modal") ? { type: "consent_bypass", severity: "blocking", message: "Mission passed while a consent blocker was detected." } : null,
+    (logReport?.findings || []).some((item) => item.id === "agent_auth_wall") ? { type: "auth_wall_regression", severity: "blocking", message: "Agent traffic hit an auth wall." } : null,
+    failedChecks.has("mcp_dangerous_tools") ? { type: "destructive_tool_triggered", severity: "blocking", message: "Unapproved destructive MCP tool is exposed." } : null,
+    (logReport?.findings || []).some((item) => item.id === "agent_rate_limited") ? { type: "rate_limit_exceeded", severity: "warning", message: "Agent traffic triggered rate limiting." } : null,
+  ].filter(Boolean);
 }
 
 async function scanOptions(flags) {

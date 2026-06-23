@@ -1,7 +1,10 @@
 import { join } from "node:path";
 import { nowIso, writeJson, writeText } from "./util.js";
 
-export async function writeFixPack(outDir, { scan, logReport }) {
+const SONNET_INPUT_USD_PER_MTOK = 3;
+const BASELINE_AGENT_VISITS_PER_DAY = 500;
+
+export async function writeFixPack(outDir, { scan, logReport, missionReport }) {
   const files = [];
   const addText = async (name, value) => {
     await writeText(join(outDir, name), value);
@@ -12,7 +15,7 @@ export async function writeFixPack(outDir, { scan, logReport }) {
     files.push(name);
   };
 
-  await addText("README.md", readme(scan, logReport));
+  await addText("README.md", readme(scan, logReport, missionReport));
   if (!checkPassed(scan, "llms_txt")) await addText("llms.txt", llmsTxt(scan));
   if (!checkPassed(scan, "json_ld")) await addJson("schema-org.jsonld", jsonLd(scan));
   if (scan.openapi) {
@@ -24,7 +27,7 @@ export async function writeFixPack(outDir, { scan, logReport }) {
   return { generated_at: nowIso(), outDir, files };
 }
 
-function readme(scan, logReport) {
+function readme(scan, logReport, missionReport) {
   const failed = scan.checks.filter((item) => !item.pass);
   const list = failed.length
     ? failed.map((item) => `- ${item.id}: ${item.message}`).join("\n")
@@ -39,19 +42,36 @@ Review these files before committing them. This pack does not open PRs or mutate
 ## Evidence-backed gaps
 
 ${list}
-${costAtScale(scan, logReport)}
+${cpiAdvice(scan)}
+${costAtScale(scan, logReport, missionReport)}
 `;
 }
 
-function costAtScale(scan, logReport) {
-  if (!logReport?.total_agent_requests || !scan.page?.dom_tokens) return "";
-  const dailyInputTokens = logReport.total_agent_requests * scan.page.dom_tokens;
+function cpiAdvice(scan) {
+  const risky = (scan.page?.critical_elements || []).filter((item) => item.structural_risk);
+  if (!risky.length) return "";
+  return `
+## Content Position Index
+
+${risky.map((item) => `- ${item.id}: CPI ${item.cpi} sits in the middle-context risk zone. Move this content earlier in SSR HTML or declare it in llms.txt.`).join("\n")}
+`;
+}
+
+function costAtScale(scan, logReport, missionReport) {
+  const missionTokens = (missionReport?.results || []).reduce((sum, item) => sum + (item.tokens_consumed || 0), 0);
+  const tokensPerVisit = missionTokens || scan.page?.dom_tokens;
+  if (!tokensPerVisit) return "";
+  const visits = logReport?.total_agent_requests || BASELINE_AGENT_VISITS_PER_DAY;
+  const monthlyInputTokens = visits * tokensPerVisit * (logReport ? 1 : 30);
+  const monthlyUsd = (monthlyInputTokens / 1_000_000) * SONNET_INPUT_USD_PER_MTOK;
+  const source = logReport ? "observed agent requests" : "baseline estimate without logs";
   return `
 ## Cost at scale
 
-Observed agent requests: ${logReport.total_agent_requests}
-Readable DOM tokens per request: ${scan.page.dom_tokens}
-Projected repeated navigation load: ${dailyInputTokens.toLocaleString()} input tokens per matching traffic window.
+Traffic basis: ${visits.toLocaleString()} ${source}
+Tokens per visit: ${tokensPerVisit.toLocaleString()}
+Projected monthly input load: ${Math.round(monthlyInputTokens).toLocaleString()} tokens
+Estimated monthly Sonnet input cost: $${monthlyUsd.toFixed(2)} at $${SONNET_INPUT_USD_PER_MTOK}/MTok input.
 `;
 }
 

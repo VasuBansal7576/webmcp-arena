@@ -54,7 +54,7 @@ test("writeFixPack exports reviewable files for missing llms, jsonld, and weak O
 
   assert.match(llms, /Agent Contract OS creates contracts/i);
   assert.match(readme, /Cost at scale/);
-  assert.match(readme, /Projected repeated navigation load/);
+  assert.match(readme, /Estimated monthly Sonnet input cost/);
   assert.match(mcpChecklist, /NSA U\/OO\/6030316-26/);
   assert.match(mcpChecklist, /delete_workspace/);
   assert.equal(jsonld["@type"], "SoftwareApplication");
