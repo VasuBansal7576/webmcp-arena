@@ -50,8 +50,7 @@ The evidence report should emit the taxonomy tag alongside every finding. This m
 Contract OS the first tool to explicitly map site issues to the peer-reviewed failure taxonomy —
 not a proprietary scoring opinion.
 
-**Status:** Cookie modal and auth wall checks exist. Taxonomy tagging does not exist yet.
-Single addition: one field on every finding object. High leverage, low cost.
+**Status:** Implemented. Static findings now carry taxonomy metadata, and reports render it.
 
 ---
 
@@ -82,7 +81,7 @@ This reframes the output from "your site has an issue" to "your site is contribu
 documented, quantified systemic problem." That framing is the difference between a tool
 developers shrug at and one that gets forwarded to a VP.
 
-**Status:** Mission pass/fail exists. Contextualized evidence framing does not.
+**Status:** Implemented. Static report findings now include bounded research framing where the scanner has a mapped failure mode.
 
 ---
 
@@ -126,8 +125,7 @@ it is 82,000 tokens of noise that an agent must navigate to find one piece of in
 That raw number, compared against the Prune4Web baseline (10k–100k range), is a concrete
 severity signal. A page at the 100k end costs 10x what a page at the 10k end costs to navigate.
 
-**Status:** Prune4Web-style pruning exists in the mission runner. Evidence emission of the
-pruning output does not exist. DOM token count is not currently recorded by the JS-only check.
+**Status:** Implemented. The mission runner emits standalone Prune4Web-style pruning artifacts, and the JS-only static check records DOM token metrics.
 
 ---
 
@@ -169,8 +167,7 @@ LLM interaction. The estimate uses the token count × Claude Sonnet pricing × e
 daily agent visit frequency (derivable from Layer 0 log analytics — if ClaudeBot has hit
 the pricing page N times in the last 30 days, that is the floor estimate).
 
-**Status:** Token estimates exist per mission run. "Cost at scale" projection does not exist.
-Layer 0 log data is not currently cross-referenced with Layer 4 token estimates.
+**Status:** Implemented as a token-load projection in fix packs when logs are supplied. Currency conversion is intentionally not baked in because provider pricing changes.
 
 ---
 
@@ -215,13 +212,9 @@ Policy violations to check in the gate:
   see section 6)
 
 The `policies.yml` file in the `.agent/` contract folder is the exact artifact that encodes
-the CuP policy set for a given site. It already exists in the architecture. The missing piece
-is making the CI gate evaluate missions against `policies.yml` and emit a CuP score alongside
-the task success score.
+the CuP policy set for a given site. Contracts now emit local CuP scoring alongside task success.
 
-**Status:** Task-success-drop gate exists. CuP evaluation against `policies.yml` does not
-exist. The infrastructure (policies.yml, mission runner, gate) is all present — this is an
-evaluation logic addition, not a new component.
+**Status:** Implemented as local CuP scoring across six policy dimensions in `contract.json`.
 
 ---
 
@@ -284,9 +277,9 @@ it's what a compliance team will ask for by name.
 
 **Status:**
 - Dangerous tool detection: exists
-- Tool description hash comparison: does not exist
-- MCP spec version compliance check: does not exist
-- Security checklist in fix pack: does not exist
+- Tool description hash comparison: implemented in monitor state
+- MCP spec version compliance check: implemented in scanner, contract, and policy audit data
+- Security checklist in fix pack: implemented when an MCP manifest is supplied
 
 ---
 
@@ -337,7 +330,7 @@ their default format without opt-in. Use `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_l
 as the opt-in flag for v1.37+ emission. This gives customers a migration path rather than
 a breaking change.
 
-**Status:** OTLP JSON output exists. Alignment with v1.37+ attribute names is unknown.
+**Status:** Implemented. OTLP output carries GenAI semconv-aligned operation, agent, and workflow attributes with a `gen_ai.1.42.0` marker; model/usage attributes are not faked when no model call occurs.
 Should be a schema audit pass, not a new build.
 
 ---
@@ -377,7 +370,7 @@ The coverage score maps to CI4A's framing:
 This gives a concrete, research-backed "potential completion rate improvement" estimate
 per site — a number that closes sales conversations.
 
-**Status:** WebMCP presence detection exists. Component coverage scoring does not exist.
+**Status:** Implemented. Static analysis records detected and annotated high-value WebMCP components plus coverage score.
 
 ---
 
@@ -419,30 +412,29 @@ This structure does three things:
 2. Gives the customer a clear improvement path (fix the lowest sub-score first)
 3. Makes the academic backing visible — the score is explicitly the AWI framework, cited
 
-**Status:** Flat 0–100 score exists. Six-axis AWI-aligned sub-score does not exist.
-This is a scoring model change, not a new check.
+**Status:** Implemented. Readiness now includes AWI six-axis sub-scores alongside the existing flat score.
 
 ---
 
-## SUMMARY: What Exists, What Needs Adding
+## SUMMARY: What This Hardening Adds
 
-The architecture is sound. These are precise, bounded additions — none require new components,
-only extensions to existing ones.
+The architecture is sound. These additions are implemented as extensions to existing data flows,
+output schemas, and evaluation logic. No new infrastructure was added.
 
-| Addition | Existing hook | Research basis | Effort estimate |
+| Addition | Existing hook | Research basis | Status |
 |---|---|---|---|
-| BrowserArena taxonomy tag on every finding | Finding object schema | arXiv:2510.02418 | Small |
-| Contextualized evidence framing in report | Evidence report template | arXiv:2512.04367 | Small |
-| Pruning script emitted as evidence artifact | Mission runner output | arXiv:2511.21398 (AAAI 2026) | Medium |
-| DOM token count in JS-only check | Static check output | arXiv:2511.21398 | Small |
-| "Cost at scale" projection in fix pack | Fix pack generator + Layer 0 logs | arXiv:2604.09718 | Medium |
-| CuP evaluation against policies.yml | CI gate + mission runner | arXiv:2410.06703 (ICML 2025) | Medium |
-| MCP tool description hash in Layer 7 monitor | Monitor diff engine | NSA U/OO/6030316-26 | Small |
-| MCP spec version compliance check | Policy audit | MCP spec 2025-06-18 | Small |
-| MCP security checklist in fix pack | Fix pack generator | NSA + OWASP MCP Top 10 | Small |
-| OTel v1.37+ attribute alignment | OTLP output | OTel GenAI SemConv v1.37 | Schema audit |
-| WebMCP component coverage scoring | WebMCP detection check | arXiv:2601.14790 | Medium |
-| AWI six-axis sub-score | Score engine | arXiv:2506.10953 | Medium |
+| BrowserArena taxonomy tag on every finding | Finding object schema | arXiv:2510.02418 | Implemented |
+| Contextualized evidence framing in report | Evidence report template | arXiv:2512.04367 | Implemented |
+| Pruning script emitted as evidence artifact | Mission runner output | arXiv:2511.21398 (AAAI 2026) | Implemented |
+| DOM token count in JS-only check | Static check output | arXiv:2511.21398 | Implemented |
+| "Cost at scale" projection in fix pack | Fix pack generator + Layer 0 logs | arXiv:2604.09718 | Implemented as token-load projection |
+| CuP evaluation against policies.yml | CI gate + mission runner | arXiv:2410.06703 (ICML 2025) | Implemented as local contract scoring |
+| MCP tool description hash in Layer 7 monitor | Monitor diff engine | NSA U/OO/6030316-26 | Implemented |
+| MCP spec version compliance check | Policy audit | MCP spec 2025-06-18 | Implemented |
+| MCP security checklist in fix pack | Fix pack generator | NSA + OWASP MCP Top 10 | Implemented |
+| OTel v1.37+ attribute alignment | OTLP output | OTel GenAI SemConv v1.37 | Implemented |
+| WebMCP component coverage scoring | WebMCP detection check | arXiv:2601.14790 | Implemented |
+| AWI six-axis sub-score | Score engine | arXiv:2506.10953 | Implemented |
 
 **None of these require new infrastructure.**
 All are additions to existing data flows, output schemas, or evaluation logic.
@@ -450,25 +442,25 @@ The mission runner, static checks, gate, monitor, fix pack, and policy audit all
 
 ---
 
-## Order of Implementation
+## Implementation Order Used
 
 The order is determined by two constraints:
 1. Which additions make existing output more trustworthy (ship first)
 2. Which additions unlock the next product tier
 
-**Immediate (harden what ships with Solo tier):**
+**Immediate (harden what ships with Solo tier):** implemented
 - BrowserArena taxonomy tags on findings
 - Contextualized evidence framing
 - DOM token count in JS-only check
 - OTel v1.37+ attribute alignment (schema audit, no new code)
 
-**Before Startup CI gate launch:**
+**Before Startup CI gate launch:** implemented
 - MCP tool description hash in Layer 7
 - MCP spec version compliance check
 - CuP evaluation against policies.yml (even partial — user-consent dimension only)
 - "Cost at scale" projection (requires Layer 0 log count to be passed into fix pack)
 
-**Before Enterprise tier:**
+**Before Enterprise tier:** implemented
 - AWI six-axis sub-score (reframes everything, changes the evidence report structure)
 - WebMCP component coverage scoring
 - Full MCP security checklist in fix pack (with NSA advisory reference)

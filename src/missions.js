@@ -249,8 +249,25 @@ function missionResult(mission, status, summary, snapshot, evidence) {
 }
 
 async function finishMission(page, mission, status, summary, snapshot, evidence, runtime) {
+  if (snapshot.selector_program) evidence.push(await pruningEvidence(snapshot, runtime, mission));
   evidence.push(await screenshotEvidence(page, runtime, mission));
   return missionResult(mission, status, summary, snapshot, evidence);
+}
+
+async function pruningEvidence(snapshot, runtime, mission) {
+  const path = join(runtime.evidenceDir, `${runtime.key}-${mission.id}-prune4web.json`);
+  const payload = {
+    selector_program: snapshot.selector_program,
+    representation: snapshot.representation,
+    textLength: snapshot.textLength,
+    tokens: estimateTokens(snapshot.text),
+  };
+  try {
+    await writeJson(path, payload);
+    return { type: "prune4web_artifact", ok: true, path, contentType: "application/json" };
+  } catch (error) {
+    return { type: "prune4web_artifact", ok: false, path, error: error.message };
+  }
 }
 
 async function screenshotEvidence(page, runtime, mission) {
