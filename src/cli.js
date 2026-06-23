@@ -208,6 +208,7 @@ function missionOptions(flags, scan, contractDir, auth) {
     cacheDir: flags.missionCache || `${normalizedContractDir}/cache/missions`,
     evidenceDir: flags.missionEvidence || `${normalizedContractDir}/evidence/mission-artifacts`,
     contentHash: scan.source.content_hash,
+    missionIds: flags.missionIds ? String(flags.missionIds).split(",").map((item) => item.trim()).filter(Boolean) : undefined,
     auth,
   };
 }
@@ -243,8 +244,8 @@ function usage() {
   return `Usage:
   agent-contract logs <access.log> [--json] [--out logs.json]
   agent-contract scan <url> [--openapi openapi.json] [--mcp mcp.json] [--agent-skills index.json] [--auth-profile auth.json] [--json] [--out scan.json]
-  agent-contract contract <url> [--logs access.log] [--mcp mcp.json] [--agent-skills index.json] [--auth-profile auth.json] [--missions --browser-executable /path/to/chrome] [--out .agent]
-  agent-contract gate <url> [--logs access.log] [--mcp mcp.json] [--agent-skills index.json] [--auth-profile auth.json] [--missions --browser-executable /path/to/chrome] [--mode report|warning|blocking] [--min-score 70] [--report report.html] [--otel-file trace.json]
+  agent-contract contract <url> [--logs access.log] [--mcp mcp.json] [--agent-skills index.json] [--auth-profile auth.json] [--missions --mission-ids find_pricing,find_refund_policy --browser-executable /path/to/chrome] [--out .agent]
+  agent-contract gate <url> [--logs access.log] [--mcp mcp.json] [--agent-skills index.json] [--auth-profile auth.json] [--missions --mission-ids find_pricing,find_refund_policy --browser-executable /path/to/chrome] [--mode report|warning|blocking] [--min-score 70] [--report report.html] [--otel-file trace.json]
   agent-contract monitor <url...> [--auth-profile auth.json] [--missions --browser-executable /path/to/chrome] [--state .agent/state/pages.json] [--json]
   agent-contract fixpack <url> [--openapi openapi.json] [--auth-profile auth.json] [--out fix-pack] [--llm-explain --llm-model model]
   agent-contract pr-prep <fix-pack-dir> [--repo /path/to/repo] [--dry-run] [--branch agent-contract/fix-pack]

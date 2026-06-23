@@ -9,6 +9,7 @@ node ./bin/agent-contract.js scan https://example.com --json
 node ./bin/agent-contract.js contract https://example.com --out .agent
 node ./bin/agent-contract.js gate https://example.com --mode report --report reports/agent-contract.html --otel-file reports/otel.json
 node ./bin/agent-contract.js gate https://example.com --missions --browser-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+node ./bin/agent-contract.js gate https://example.com --missions --mission-ids create_first_api_request,find_refund_policy,use_mcp_tool_if_available --browser-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 node ./bin/agent-contract.js scan https://example.com/private --auth-profile auth-profile.json
 node ./bin/agent-contract.js scan https://example.com --mcp mcp.json
 node ./bin/agent-contract.js scan https://example.com --agent-skills .agent/agent-skills/index.json
@@ -31,7 +32,7 @@ The gate defaults to `report` mode. Use `--mode blocking` only after calibration
 - Split-ready `.agent` spec material in `spec/`.
 - HTML/Markdown/JSON reports and OTLP JSON payloads with `gen_ai.*` attributes.
 - Composite GitHub Action wrapper with optional Markdown PR comments and scheduled workflow support.
-- Real browser synthetic missions for the plan's first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots, AXTree evidence, deterministic Prune4Web-style pricing slices, and token evidence.
+- Real browser synthetic missions default to the first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots, AXTree evidence, deterministic Prune4Web-style pricing slices, and token evidence. The standard six-mission pack is available with `--mission-ids`.
 - Diff-based monitoring: stores page hashes, skips unchanged pages, and reruns only affected missions.
 - MCP manifest audits flag destructive, payment, command-execution, and write-side-effect tools unless they carry an explicit human-approval annotation.
 - Fix pack export: writes reviewable `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem details examples.

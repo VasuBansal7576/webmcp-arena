@@ -65,6 +65,39 @@ test("runSyntheticMissions executes phase-one missions in a real browser and reu
   assert.equal(second.results.every((item) => item.cached), true);
 });
 
+test("runSyntheticMissions executes opt-in standard missions", async (t) => {
+  const cacheDir = await mkdtemp(join(tmpdir(), "agent-contract-standard-missions-"));
+  t.after(() => rm(cacheDir, { recursive: true, force: true }));
+
+  const server = createServer((request, response) => {
+    const path = new URL(request.url, "http://127.0.0.1").pathname;
+    const send = (status, body, type = "text/html") => {
+      response.writeHead(status, { "content-type": type });
+      response.end(body);
+    };
+    if (path === "/") return send(200, home());
+    if (path === "/docs/quickstart") return send(200, quickstart());
+    if (path === "/legal/refund") return send(200, refund());
+    if (path === "/.well-known/mcp.json") return send(200, JSON.stringify({ tools: [{ name: "create_contract" }, { name: "list_contracts" }] }), "application/json");
+    return send(404, "missing");
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(() => resolve())));
+  const result = await runSyntheticMissions(`http://127.0.0.1:${server.address().port}/`, {
+    browserExecutablePath: chromePath,
+    cacheDir,
+    contentHash: "standard-test-page",
+    missionIds: ["create_first_api_request", "find_refund_policy", "use_mcp_tool_if_available"],
+  });
+
+  assert.equal(result.tested, 3);
+  assert.equal(result.failed, 0);
+  assert.match(result.results.find((item) => item.mission === "create_first_api_request").summary, /GET \/v1\/contracts/i);
+  assert.match(result.results.find((item) => item.mission === "find_refund_policy").summary, /refund/i);
+  assert.match(result.results.find((item) => item.mission === "use_mcp_tool_if_available").summary, /create_contract/);
+});
+
 function home() {
   return `<!doctype html>
 <html><body>
@@ -72,6 +105,7 @@ function home() {
   <p>Agent Contract OS helps engineering teams publish machine-readable contracts and CI gates for autonomous web agents.</p>
   <a href="/pricing">Pricing</a>
   <a href="/docs/quickstart">API quickstart</a>
+  <a href="/legal/refund">Refund policy</a>
 </body></html>`;
 }
 
@@ -91,5 +125,13 @@ function quickstart() {
   <h1>API Quickstart</h1>
   <p>Make your first request with GET /v1/contracts using a Bearer token.</p>
   <code>curl -H "Authorization: Bearer $TOKEN" https://api.example.test/v1/contracts</code>
+</body></html>`;
+}
+
+function refund() {
+  return `<!doctype html>
+<html><body>
+  <h1>Refund policy</h1>
+  <p>Customers can cancel any monthly plan and request a refund within 14 days of purchase.</p>
 </body></html>`;
 }

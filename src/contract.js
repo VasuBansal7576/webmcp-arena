@@ -121,6 +121,27 @@ missions:
     max_tokens: 1200
     token_strategy: a11y_tree
     critical: true
+
+  - id: create_first_api_request
+    description: "Create the first API request from the docs alone"
+    expected_outcome: "The method, endpoint, and minimal first request"
+    max_steps: 12
+    max_tokens: 800
+    token_strategy: openapi_or_a11y_tree
+
+  - id: find_refund_policy
+    description: "Find the refund or cancellation policy"
+    expected_outcome: "A browser-readable refund, return, or cancellation policy summary"
+    max_steps: 12
+    max_tokens: 1200
+    token_strategy: a11y_tree
+
+  - id: use_mcp_tool_if_available
+    description: "Discover MCP tools if the site publishes a manifest"
+    expected_outcome: "A list of available MCP tools or a clear no-manifest failure"
+    max_steps: 8
+    max_tokens: 1000
+    token_strategy: mcp_manifest
 `;
 }
 

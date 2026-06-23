@@ -9,6 +9,13 @@ export const PHASE_ONE_MISSIONS = [
   { id: "find_api_quickstart", maxTokens: 1200 },
 ];
 
+export const STANDARD_MISSIONS = [
+  ...PHASE_ONE_MISSIONS,
+  { id: "create_first_api_request", maxTokens: 800 },
+  { id: "find_refund_policy", maxTokens: 1200 },
+  { id: "use_mcp_tool_if_available", maxTokens: 1000 },
+];
+
 export async function runSyntheticMissions(inputUrl, options = {}) {
   const url = new URL(inputUrl).href;
   const cacheDir = options.cacheDir || ".agent/cache/missions";
@@ -63,7 +70,7 @@ export async function runSyntheticMissions(inputUrl, options = {}) {
 function selectMissions(ids) {
   if (!ids?.length) return PHASE_ONE_MISSIONS;
   const wanted = new Set(ids);
-  return PHASE_ONE_MISSIONS.filter((mission) => wanted.has(mission.id));
+  return STANDARD_MISSIONS.filter((mission) => wanted.has(mission.id));
 }
 
 async function launchBrowser(options) {
@@ -78,6 +85,9 @@ async function runMission(page, url, mission, runtime) {
   if (mission.id === "understand_company") return understandCompany(page, url, mission, runtime);
   if (mission.id === "find_pricing") return findPricing(page, url, mission, runtime);
   if (mission.id === "find_api_quickstart") return findApiQuickstart(page, url, mission, runtime);
+  if (mission.id === "create_first_api_request") return createFirstApiRequest(page, url, mission, runtime);
+  if (mission.id === "find_refund_policy") return findRefundPolicy(page, url, mission, runtime);
+  if (mission.id === "use_mcp_tool_if_available") return useMcpToolIfAvailable(page, url, mission, runtime);
   throw new Error(`Unknown mission: ${mission.id}`);
 }
 
@@ -114,10 +124,42 @@ async function findApiQuickstart(page, url, mission, runtime) {
   const link = await findLink(page, /api|quickstart|docs|developer/i);
   if (link?.href) await goto(page, link.href, evidence);
   const snapshot = await pageSnapshot(page);
-  const endpoint = snapshot.text.match(/\b(GET|POST|PUT|PATCH|DELETE)\s+\/[A-Za-z0-9_./:-]+/i)?.[0]
-    || snapshot.text.match(/\bcurl\b[^\n]+/i)?.[0];
+  const endpoint = firstApiRequest(snapshot.text);
   const summary = endpoint || "No API quickstart request found in browser-readable page content.";
   return finishMission(page, mission, endpoint ? "passed" : "failed", summary, snapshot, evidence, runtime);
+}
+
+async function createFirstApiRequest(page, url, mission, runtime) {
+  const evidence = [];
+  await goto(page, url, evidence);
+  const link = await findLink(page, /api|quickstart|docs|developer/i);
+  if (link?.href) await goto(page, link.href, evidence);
+  const snapshot = await pageSnapshot(page);
+  const request = firstApiRequest(snapshot.text);
+  const summary = request || "No first API request found from browser-readable docs.";
+  return finishMission(page, mission, request ? "passed" : "failed", summary, snapshot, evidence, runtime);
+}
+
+async function findRefundPolicy(page, url, mission, runtime) {
+  const evidence = [];
+  await goto(page, url, evidence);
+  const link = await findLink(page, /refund|return|cancel|cancellation|terms|policy/i);
+  if (link?.href) await goto(page, link.href, evidence);
+  const snapshot = await pageSnapshot(page);
+  const policy = snapshot.text.split(/\n+/).find((line) => /\b(refund|return|cancel|cancellation)\b/i.test(line) && line.trim().length > 20)?.trim();
+  const summary = policy || "No refund or cancellation policy found in browser-readable content.";
+  return finishMission(page, mission, policy ? "passed" : "failed", summary, snapshot, evidence, runtime);
+}
+
+async function useMcpToolIfAvailable(page, url, mission, runtime) {
+  const evidence = [];
+  const manifestUrl = new URL("/.well-known/mcp.json", url).href;
+  await goto(page, manifestUrl, evidence);
+  const text = await page.locator("body").innerText({ timeout: 3000 }).catch(() => "");
+  const tools = mcpTools(text);
+  const snapshot = { title: await page.title(), representation: "mcp_manifest", text: text.slice(0, 12000), textLength: text.length };
+  const summary = tools.length ? `MCP tools discovered: ${tools.slice(0, 6).join(", ")}` : "No MCP tool manifest found at /.well-known/mcp.json.";
+  return finishMission(page, mission, tools.length ? "passed" : "failed", summary, snapshot, evidence, runtime);
 }
 
 async function goto(page, url, evidence) {
@@ -226,6 +268,21 @@ function accessibleNodeText(node) {
 
 function estimateTokens(text) {
   return Math.ceil((text || "").length / 4);
+}
+
+function firstApiRequest(text) {
+  return text.match(/\b(GET|POST|PUT|PATCH|DELETE)\s+\/[A-Za-z0-9_./:-]+/i)?.[0]
+    || text.match(/\bcurl\b[^\n]+/i)?.[0]
+    || "";
+}
+
+function mcpTools(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return (parsed.tools || []).map((tool) => tool.name).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 function firstMeaningfulSentence(text) {

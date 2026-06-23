@@ -12,7 +12,8 @@ This repo is a local production CLI for proving whether a product surface works 
 - Split-ready `.agent` spec material in `spec/`.
 - Report-only CI gate with HTML, Markdown, JSON, and OTLP JSON trace outputs.
 - GitHub composite action with optional PR comments.
-- Browser-backed synthetic missions for `understand_company`, `find_pricing`, and `find_api_quickstart`.
+- Browser-backed synthetic missions default to `understand_company`, `find_pricing`, and `find_api_quickstart`.
+- Opt-in standard missions include `create_first_api_request`, `find_refund_policy`, and `use_mcp_tool_if_available` via `--mission-ids`.
 - Mission evidence includes screenshots, AXTree text, token estimates, deterministic Prune4Web-style pricing slices, and shared mission cache reuse.
 - Diff-based monitor that hashes pages, skips unchanged pages, and reruns affected checks/missions.
 - Fix pack export for `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem-details examples.

@@ -246,6 +246,8 @@ jobs:
 
 This is the product that makes Agent Contract OS hard to replace once a team has seen it.
 
+Implementation note: the first three missions remain the default. The full six-mission pack is opt-in through `--mission-ids` until a real-site corpus proves reliability.
+
 **Standard Mission Pack (6 missions):**
 1. "Understand what this company does" — zero context, cold start
 2. "Find pricing" — can the agent reach a price without hitting a JS wall?
