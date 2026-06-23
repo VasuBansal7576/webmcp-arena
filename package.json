@@ -4,7 +4,8 @@
   "description": "Agent Contract OS: passive agent traffic analytics, static readiness checks, and .agent contract generation.",
   "type": "module",
   "bin": {
-    "agent-contract": "./bin/agent-contract.js"
+    "agent-contract": "./bin/agent-contract.js",
+    "agent-traffic-parser": "./bin/agent-traffic-parser.js"
   },
   "files": [
     "README.md",
@@ -13,6 +14,7 @@
     "docs/",
     "examples/",
     "schema/",
+    "spec/",
     "src/"
   ],
   "scripts": {

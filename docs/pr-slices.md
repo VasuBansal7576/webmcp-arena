@@ -34,7 +34,7 @@ node ./bin/agent-contract.js gate http://127.0.0.1:PORT --mode report --report r
 
 After PR 1 has real users:
 
-- Run the first three missions against the 10-site evidence corpus from `plan_final.md`.
+- Run the first three missions against a real 10-site evidence corpus.
 - Replace deterministic pricing pruning with LLM-generated selector programs only if the corpus proves it is needed.
 - Add broader mission coverage after the first three stay reliable.
 

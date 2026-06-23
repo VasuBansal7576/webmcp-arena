@@ -1,9 +1,10 @@
 # Agent Contract OS
 
-Production CLI for the first wedge in `plan_final.md`: passive agent traffic analytics, static agent-readiness checks, `.agent/` contract export, report-only CI gates, and OTLP JSON traces.
+Production CLI for the implemented scope in `context.md`: passive agent traffic analytics, static agent-readiness checks, `.agent/` contract export, report-only CI gates, and OTLP JSON traces.
 
 ```bash
 node ./bin/agent-contract.js logs access.log --json
+node ./bin/agent-traffic-parser.js access.log --output json
 node ./bin/agent-contract.js scan https://example.com --json
 node ./bin/agent-contract.js contract https://example.com --out .agent
 node ./bin/agent-contract.js gate https://example.com --mode report --report reports/agent-contract.html --otel-file reports/otel.json
@@ -23,9 +24,10 @@ The gate defaults to `report` mode. Use `--mode blocking` only after calibration
 
 ## What Exists
 
-- NGINX and CloudFront access-log parsing for ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended.
+- NGINX and CloudFront access-log parsing for ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended, exposed through both `agent-contract logs` and `agent-traffic-parser`.
 - Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
 - Portable `.agent/` output with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, and evidence snapshots.
+- Split-ready `.agent` spec material in `spec/`.
 - HTML/Markdown/JSON reports and OTLP JSON payloads with `gen_ai.*` attributes.
 - Composite GitHub Action wrapper with optional Markdown PR comments and scheduled workflow support.
 - Real browser synthetic missions for the plan's first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots, AXTree evidence, deterministic Prune4Web-style pricing slices, and token evidence.
@@ -53,4 +55,4 @@ Remote PR creation is opt-in and gated with explicit confirmation. Publishing is
 
 ## Not Proven By This Repo
 
-The local CLI does not prove market validation steps from `plan_final.md`: customer log access, 5 company pilots, McGill/Mila acknowledgement, real-site audit corpus, LOIs, domain ownership, public package publication, GitHub stars, or public standard adoption. Track those as external proof, not code proof.
+The local CLI does not prove market validation steps: customer log access, 5 company pilots, real-site audit corpus, LOIs, domain ownership, public package publication, GitHub stars, or public standard adoption. Track those as external proof, not code proof.

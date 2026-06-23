@@ -8,6 +8,7 @@ test("runReleaseCheck verifies package, action, docs, examples, and schema are r
   assert.equal(result.status, "passed");
   assert.equal(result.checks.every((check) => check.status === "passed"), true);
   assert.ok(result.checks.find((check) => check.id === "package_publishable"));
+  assert.ok(result.checks.find((check) => check.id === "package_bin"));
   assert.ok(result.checks.find((check) => check.id === "github_action_example"));
   assert.ok(result.checks.find((check) => check.id === "schema_docs"));
 });
