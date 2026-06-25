@@ -2,9 +2,13 @@
 
 Source of truth: what is listed under **Implemented** is already built in this repo.
 Do not re-implement those items; inspect and extend the existing code instead.
-Use `architecture_v2.md` for bounded technical next steps, not implementation truth.
+Use `architecture_v3.md` for bounded technical next steps, not implementation truth.
 
-This repo is a local production CLI for proving whether a product surface works for AI agents. It is not a pitch deck or planning archive.
+## What This Project Is
+
+Agent Contract OS is a local production CLI that turns a website or product surface into evidence about whether AI agents can understand it, navigate it, respect its policy boundaries, and produce reviewable artifacts. It combines passive agent-traffic log analysis, static agent-readiness checks, browser-backed synthetic missions, `.agent/` contract export, report-only CI gates, fix packs, policy audits, repo scans, OTLP JSON traces, and the first local Agent Session Membrane primitives.
+
+The project is a proof-and-repair tool for agent compatibility. It is not a pitch deck, planning archive, benchmark paper reproduction, market-validation tracker, or fake demo layer.
 
 ## Implemented
 
@@ -15,6 +19,7 @@ This repo is a local production CLI for proving whether a product surface works 
 - Static findings carry taxonomy/framing metadata, and the JS-only check records DOM token metrics.
 - Static analysis emits Content Position Index for critical elements and IPI risk findings for suspicious hidden/accessibility instructions.
 - Findings include AWI dimensions and reproducibility hashes for element-like CPI/IPI evidence.
+- Layer 1 Agent Session Membrane primitives: `membrane-baseline` builds a clean runtime baseline from scanner output, `membrane-snippet` emits a browser-side SHA-256 beacon snippet, and `membrane-check` compares runtime observations against the baseline to emit deviation events.
 - Readiness includes AWI six-axis sub-scores, and WebMCP detection includes annotated/unannotated component coverage plus a local CI4A-style completion-rate ceiling estimate.
 - Static checks fetch `/.agent/contract.json` for `agent_auth` declarations and emit `agent_auth_undeclared` when missing.
 - Static checks fetch `/.well-known/agent.json`, validate minimal A2A Agent Card fields, and emit `a2a_card_absent`, `a2a_card_invalid`, or `a2a_card_valid`.
@@ -65,12 +70,17 @@ npm pack --dry-run
 - OTel GenAI model/provider/token attributes are emitted only when explicitly supplied; the CLI does not fake model usage from DOM token estimates.
 - Mission primitive validation is static schema hygiene over `missions.yml`; it does not prove a mission can complete in a browser.
 - Rendering-mode discipline is documented and followed by current code paths; it is not enforced by a separate linter.
+- Layer 1 membrane events are hash-based deviation detection only; they do not attribute intent, prove an attack, or identify who introduced a change.
+- The browser snippet captures rendered DOM hashes from the client side; it is not the raw HTTP response hook described for a production NGINX/Cloudflare install.
 - Smoke artifacts are local proof that the CLI paths run; they are not customer or production proof.
 
 ## Not Proven Here
 
 - Customer log access.
 - Real production traffic.
+- Real site membrane installation.
+- Continuous runtime event stream from production sessions.
+- Server-side NGINX/Cloudflare raw-response capture.
 - Company pilots or LOIs.
 - Real enterprise deployment.
 - Real MCP server in the wild.

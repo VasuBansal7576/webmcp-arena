@@ -11,6 +11,7 @@ import { prepareFixPackPr } from "./pr.js";
 import { ENTERPRISE_POLICY_PACK, writePolicyAudit } from "./policy.js";
 import { loadAuthProfile } from "./auth.js";
 import { scanRepo } from "./repo.js";
+import { browserSnippet, buildMembraneBaseline, evaluateRuntimeObservation } from "./membrane.js";
 import { number, readText, writeJson, writeText } from "./util.js";
 
 export async function main(argv) {
@@ -25,7 +26,37 @@ export async function main(argv) {
   if (command === "pr-prep") return prPrepCommand(rest);
   if (command === "policy-audit") return policyAuditCommand(rest);
   if (command === "repo-scan") return repoScanCommand(rest);
+  if (command === "membrane-baseline") return membraneBaselineCommand(rest);
+  if (command === "membrane-check") return membraneCheckCommand(rest);
+  if (command === "membrane-snippet") return membraneSnippetCommand(rest);
   throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+}
+
+async function membraneBaselineCommand(argv) {
+  const { positional, flags } = parseArgs(argv);
+  const url = positional[0] || flags.url;
+  if (!url) throw new Error(`membrane-baseline requires a URL\n\n${usage()}`);
+  const baseline = buildMembraneBaseline(await scanUrl(url, await scanOptions(flags)));
+  await output(baseline, flags);
+}
+
+async function membraneCheckCommand(argv) {
+  const { positional, flags } = parseArgs(argv);
+  const baselinePath = positional[0] || flags.baseline;
+  const observationPath = positional[1] || flags.observation;
+  if (!baselinePath || !observationPath) throw new Error(`membrane-check requires baseline and observation JSON files\n\n${usage()}`);
+  const baseline = JSON.parse(await readText(baselinePath));
+  const observation = JSON.parse(await readText(observationPath));
+  const result = evaluateRuntimeObservation(baseline, observation);
+  await output(result, flags);
+  if (flags.failOnDeviation && result.status === "deviation") process.exitCode = 1;
+}
+
+async function membraneSnippetCommand(argv) {
+  const { flags } = parseArgs(argv);
+  const snippet = browserSnippet({ endpoint: flags.endpoint, siteId: flags.siteId || "" });
+  if (flags.out) await writeText(flags.out, snippet);
+  else console.log(snippet);
 }
 
 async function repoScanCommand(argv) {
@@ -272,5 +303,8 @@ function usage() {
   agent-contract pr-prep <fix-pack-dir> [--repo /path/to/repo] [--dry-run] [--branch agent-contract/fix-pack]
   agent-contract policy-audit [.agent/contract.json] [--policy policy.json] [--out .agent/audit/policy] [--fail-on-violation]
   agent-contract repo-scan [/path/to/repo] [--json] [--out repo-scan.json]
+  agent-contract membrane-baseline <url> [--out .agent/membrane/baseline.json]
+  agent-contract membrane-check <baseline.json> <observation.json> [--json] [--out membrane-events.json] [--fail-on-deviation]
+  agent-contract membrane-snippet --endpoint https://example.com/membrane/events [--site-id site_123] [--out membrane-snippet.js]
 `;
 }
