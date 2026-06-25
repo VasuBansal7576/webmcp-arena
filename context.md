@@ -81,6 +81,11 @@ npm pack --dry-run
 - Real site membrane installation.
 - Continuous runtime event stream from production sessions.
 - Server-side NGINX/Cloudflare raw-response capture.
+- Layer 2 Agent Behavioral Registry.
+- Layer 3 Drift Score API or WAF integrations.
+- Layer 4 dual-signed session receipts.
+- Layer 5 causal attribution graph.
+- Layer 6 counterfactual replay.
 - Company pilots or LOIs.
 - Real enterprise deployment.
 - Real MCP server in the wild.
