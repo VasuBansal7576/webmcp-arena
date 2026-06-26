@@ -12,6 +12,8 @@ import { ENTERPRISE_POLICY_PACK, writePolicyAudit } from "./policy.js";
 import { loadAuthProfile } from "./auth.js";
 import { scanRepo } from "./repo.js";
 import { browserSnippet, buildMembraneBaseline, evaluateRuntimeObservation } from "./membrane.js";
+import { emptyRegistry, ingestBehavioralEvents, registrySummary } from "./abr.js";
+import { buildDriftScore, wafRule } from "./drift.js";
 import { number, readText, writeJson, writeText } from "./util.js";
 
 export async function main(argv) {
@@ -29,7 +31,60 @@ export async function main(argv) {
   if (command === "membrane-baseline") return membraneBaselineCommand(rest);
   if (command === "membrane-check") return membraneCheckCommand(rest);
   if (command === "membrane-snippet") return membraneSnippetCommand(rest);
+  if (command === "abr-ingest") return abrIngestCommand(rest);
+  if (command === "abr-score") return abrScoreCommand(rest);
+  if (command === "drift-score") return driftScoreCommand(rest);
+  if (command === "drift-waf-rule") return driftWafRuleCommand(rest);
   throw new Error(`Unknown command: ${command}\n\n${usage()}`);
+}
+
+async function driftScoreCommand(argv) {
+  const { positional, flags } = parseArgs(argv);
+  const registryPath = positional[0] || flags.registry || ".agent/membrane/abr.json";
+  const agentId = flags.agent || positional[1];
+  if (!agentId) throw new Error(`drift-score requires --agent\n\n${usage()}`);
+  const registry = JSON.parse(await readText(registryPath));
+  const result = buildDriftScore(registry, {
+    agentId,
+    siteType: flags.siteType || "global",
+    threshold: number(flags.threshold, 0.8),
+    blockThreshold: number(flags.blockThreshold, 0.5),
+  });
+  await output(result, flags);
+}
+
+async function driftWafRuleCommand(argv) {
+  const { flags } = parseArgs(argv);
+  const rule = wafRule({
+    provider: flags.provider || "nginx",
+    endpoint: flags.endpoint,
+    threshold: number(flags.threshold, 0.8),
+    blockThreshold: number(flags.blockThreshold, 0.5),
+  });
+  if (flags.out) await writeText(flags.out, rule);
+  else console.log(rule);
+}
+
+async function abrIngestCommand(argv) {
+  const { positional, flags } = parseArgs(argv);
+  const eventsPath = positional[0] || flags.events;
+  const registryPath = flags.registry || ".agent/membrane/abr.json";
+  if (!eventsPath) throw new Error(`abr-ingest requires an events JSON file\n\n${usage()}`);
+  const registry = await readJsonOptional(registryPath, emptyRegistry());
+  const events = JSON.parse(await readText(eventsPath));
+  const declarations = flags.declarations ? JSON.parse(await readText(flags.declarations)) : {};
+  const next = ingestBehavioralEvents(registry, events, declarations);
+  await writeJson(flags.out || registryPath, next);
+  if (flags.json) console.log(JSON.stringify(next, null, 2));
+  else console.log(`agent-contract abr-ingest: sessions=${Object.keys(next.sessions).length} agents=${Object.keys(next.agents).length} registry=${flags.out || registryPath}`);
+}
+
+async function abrScoreCommand(argv) {
+  const { positional, flags } = parseArgs(argv);
+  const registryPath = positional[0] || flags.registry || ".agent/membrane/abr.json";
+  const registry = JSON.parse(await readText(registryPath));
+  const summary = registrySummary(registry, flags.agent);
+  await output(summary, flags);
 }
 
 async function membraneBaselineCommand(argv) {
@@ -270,6 +325,14 @@ async function output(value, flags) {
   if (flags.json || !flags.out) console.log(JSON.stringify(value, null, 2));
 }
 
+async function readJsonOptional(path, fallback) {
+  try {
+    return JSON.parse(await readText(path));
+  } catch {
+    return fallback;
+  }
+}
+
 function parseArgs(argv) {
   const flags = {};
   const positional = [];
@@ -306,5 +369,9 @@ function usage() {
   agent-contract membrane-baseline <url> [--out .agent/membrane/baseline.json]
   agent-contract membrane-check <baseline.json> <observation.json> [--json] [--out membrane-events.json] [--fail-on-deviation]
   agent-contract membrane-snippet --endpoint https://example.com/membrane/events [--site-id site_123] [--out membrane-snippet.js]
+  agent-contract abr-ingest <events.json> [--registry .agent/membrane/abr.json] [--declarations declarations.json] [--json]
+  agent-contract abr-score [registry.json] [--agent GPTBot/1.0] [--json]
+  agent-contract drift-score [registry.json] --agent GPTBot/1.0 [--site-type ecommerce] [--threshold 0.8] [--json]
+  agent-contract drift-waf-rule --endpoint https://example.com/drift-score [--provider nginx|cloudflare|fastly] [--out waf.conf]
 `;
 }

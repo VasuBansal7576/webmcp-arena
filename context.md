@@ -20,6 +20,8 @@ The project is a proof-and-repair tool for agent compatibility. It is not a pitc
 - Static analysis emits Content Position Index for critical elements and IPI risk findings for suspicious hidden/accessibility instructions.
 - Findings include AWI dimensions and reproducibility hashes for element-like CPI/IPI evidence.
 - Layer 1 Agent Session Membrane primitives: `membrane-baseline` builds a clean runtime baseline from scanner output, `membrane-snippet` emits a browser-side SHA-256 beacon snippet, and `membrane-check` compares runtime observations against the baseline to emit deviation events.
+- Layer 2 local Agent Behavioral Registry primitives: `abr-ingest` stores normalized session/action records from membrane or behavior events, and `abr-score` computes weighted per-agent conformance scores from declarations and observed actions.
+- Layer 3 local Drift Score API primitives: `drift-score` exposes ABR conformance as an API-shaped access decision, and `drift-waf-rule` emits NGINX, Cloudflare, and Fastly integration templates.
 - Readiness includes AWI six-axis sub-scores, and WebMCP detection includes annotated/unannotated component coverage plus a local CI4A-style completion-rate ceiling estimate.
 - Static checks fetch `/.agent/contract.json` for `agent_auth` declarations and emit `agent_auth_undeclared` when missing.
 - Static checks fetch `/.well-known/agent.json`, validate minimal A2A Agent Card fields, and emit `a2a_card_absent`, `a2a_card_invalid`, or `a2a_card_valid`.
@@ -71,6 +73,8 @@ npm pack --dry-run
 - Mission primitive validation is static schema hygiene over `missions.yml`; it does not prove a mission can complete in a browser.
 - Rendering-mode discipline is documented and followed by current code paths; it is not enforced by a separate linter.
 - Layer 1 membrane events are hash-based deviation detection only; they do not attribute intent, prove an attack, or identify who introduced a change.
+- Layer 2 ABR scores are local file-based conformance calculations over supplied events and declarations; they are not corpus-level reputation or ground-truth intent.
+- Layer 3 drift decisions are local API-shaped outputs and WAF templates; they are not a hosted reputation API, live WAF enforcement, or statistically meaningful corpus signal.
 - The browser snippet captures rendered DOM hashes from the client side; it is not the raw HTTP response hook described for a production NGINX/Cloudflare install.
 - Smoke artifacts are local proof that the CLI paths run; they are not customer or production proof.
 
@@ -81,8 +85,7 @@ npm pack --dry-run
 - Real site membrane installation.
 - Continuous runtime event stream from production sessions.
 - Server-side NGINX/Cloudflare raw-response capture.
-- Layer 2 Agent Behavioral Registry.
-- Layer 3 Drift Score API or WAF integrations.
+- Hosted Layer 3 Drift Score API or live WAF integrations.
 - Layer 4 dual-signed session receipts.
 - Layer 5 causal attribution graph.
 - Layer 6 counterfactual replay.

@@ -135,7 +135,7 @@ The receipt is stored by the membrane and can be exported in a legally readable 
 
 **Why this becomes possible at Layer 4 and not earlier**
 
-At Layer 1 you have no agent deployers in your install base. At Layer 3 you have enough site operators with meaningful conformance data that agent deployers have a reason to integrate — their agents are already being scored by your system and they want their side of the session recorded so that low scores caused by IPI or site errors can be contested. The cold start problem of the two-sided install dissolves naturally.
+Layer 4 starts only when there is a real counterparty for the signing protocol: an enterprise customer, a specific agent framework, or a jurisdiction-bound legal workflow. Without that counterparty, key exchange, receipt format, and legal-readable export semantics are guesses and will be rebuilt.
 
 **What it produces**
 
@@ -205,7 +205,7 @@ A replay API: given a session ID and a mutation specification, return pass or fa
 
 **When to build this**
 
-Only when at least one enterprise customer has an active dispute they need resolved and is willing to pay for the resolution specifically. Do not build this until the demand is explicit. The infrastructure cost is high and the use case is real but rare. Layer 5's attribution graph will handle the majority of disputes without needing full replay.
+Only when someone pays for a specific replay-backed dispute resolution. Do not build this until demand is explicit. The infrastructure cost is high and the use case is real but rare. Layer 5's attribution graph will handle the majority of disputes without needing full replay.
 
 **Interpretation boundary**
 
@@ -237,9 +237,11 @@ The IPI threat intelligence feed — the library of real-world IPI patterns dete
 
 ## Sequencing Rule
 
-Build one layer until it has real users on real sites before starting the next. Working code that nobody is using is not a completed layer. A completed layer has at least one site operator who installed it and finds it useful. That is the gate for moving forward.
+Build Layers 1, 2, and 3 in full before starting Layer 4. The gate between them is working code from the previous layer as input, not users.
 
-The temptation will be to build all six in code before shipping any of them. That is the failure mode this document is explicitly designed to prevent.
+Layer 2 depends on Layer 1 because the Agent Behavioral Registry needs a telemetry stream to normalize and score. Layer 3 depends on Layer 2 because the Drift Score API and WAF integrations need registry scores to expose. The sequencing between Layers 1-3 is an engineering dependency, not a growth strategy.
+
+The gate before Layer 4 is a real counterparty who has agreed to a signing protocol with you, because without that you will design the wrong key exchange and receipt format. The gate before Layer 5 is real session data from Layer 2, because the graph schema cannot be designed correctly from hypothetical traces. Layer 6 starts when someone pays for it.
 
 ---
 
@@ -257,4 +259,4 @@ This is not theoretical. The IPI detection baseline, the behavioral telemetry pa
 
 ## Current Rule
 
-Keep this file current. When a layer is fully shipped and has real users, mark it as implemented and move it to the Implemented section of context.md. Delete stale plans. Git history is the archive.
+Keep this file current. When a layer is implemented in working code and has the previous layer's real input available, mark it as implemented and move it to the Implemented section of context.md. Delete stale plans. Git history is the archive.
