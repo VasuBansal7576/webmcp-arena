@@ -42,12 +42,13 @@ const RETIRED_SOURCES = [
 
 export async function runReleaseCheck({ root = process.cwd() } = {}) {
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const [action, readme, contributing, license, arenaPage] = await Promise.all([
+  const [action, readme, contributing, license, arenaPage, ciWorkflow] = await Promise.all([
     text(root, "action.yml"),
     text(root, "README.md"),
     text(root, "CONTRIBUTING.md"),
     text(root, "LICENSE"),
     text(root, "src/arena-page.js"),
+    text(root, ".github/workflows/ci.yml"),
   ]);
   const packagedScripts = [
     "scripts/arena-server.js",
@@ -94,6 +95,21 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     check("action_uses_arena", action.includes("Arena WebMCP Preflight") && action.includes("bin/arena.js") && action.includes("preflight") && !action.includes("bin/agent-contract.js"), "composite action must run the Arena WebMCP preflight CLI"),
     check("action_runtime_safe", action.includes("actions/setup-node@v4") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
     check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.2.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the versioned Arena action and retain reports when inspection fails"),
+    check(
+      "ci_workflow",
+      ciWorkflow.includes("actions/checkout@v4")
+        && ciWorkflow.includes("actions/setup-node@v4")
+        && (ciWorkflow.includes("node-version: 22") || ciWorkflow.includes('node-version: "22"'))
+        && ciWorkflow.includes("run: npm ci")
+        && ciWorkflow.includes("run: npm test")
+        && ciWorkflow.includes("run: npm run release:check")
+        && ciWorkflow.includes("run: npx tsc --noEmit --incremental false")
+        && ciWorkflow.includes("run: npm run build:site")
+        && ciWorkflow.includes("run: npm pack --dry-run")
+        && ciWorkflow.includes("run: git diff --check")
+        && !ciWorkflow.includes("test:external-browser"),
+      "CI must run the browser-free tests, release contract, type-check, production build, package dry run, and whitespace gate on Node 22",
+    ),
     check("release_documents", readme.includes("# Arena") && readme.includes("Human-vs-Agent Boundary Audit") && readme.includes("## Current limitations") && readme.includes("arena preflight") && readme.includes("arena test --target") && readme.includes("Human-vs-Agent Checkout Proof") && readme.includes("owned Checkout fixture") && readme.includes("Static preflight") && readme.includes("document.modelContext.registerTool") && !readme.includes("This command is not implemented") && !readme.includes("Legacy Agent Contract") && contributing.includes("exact contract hash") && contributing.includes("npm test") && contributing.includes("npm run release:check") && license.includes("MIT License") && license.includes("Permission is hereby granted"), "README, CONTRIBUTING, and LICENSE must describe the focused Arena release without overstating static evidence"),
     check("obsolete_docs_absent", !obsoleteDocumentPresent, "obsolete docs and spec files must not ship"),
     check("dead_guard_absent", !await exists(root, "src/webmcp-guard.js") && !await exists(root, "test/webmcp-guard.test.js"), "the unused standalone WebMCP guard must not ship"),

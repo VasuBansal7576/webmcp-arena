@@ -31,6 +31,7 @@ test("runReleaseCheck accepts the current Arena release contract", async (t) => 
       "action_uses_arena",
       "action_runtime_safe",
       "github_action_example",
+      "ci_workflow",
       "release_documents",
       "obsolete_docs_absent",
       "dead_guard_absent",
@@ -91,6 +92,20 @@ test("runReleaseCheck rejects a default test command that can inherit external-b
   });
 });
 
+test("runReleaseCheck rejects a missing or weakened CI release gate", async (t) => {
+  const root = await createReleaseFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await write(root, ".github/workflows/ci.yml", "name: CI\nsteps:\n  - run: npm test\n");
+
+  const result = await runReleaseCheck({ root });
+
+  assert.deepEqual(result.checks.find((check) => check.id === "ci_workflow"), {
+    id: "ci_workflow",
+    status: "failed",
+    message: "CI must run the browser-free tests, release contract, type-check, production build, package dry run, and whitespace gate on Node 22",
+  });
+});
+
 test("the repository satisfies the current Arena release contract", async () => {
   const result = await runReleaseCheck({ root: process.cwd() });
 
@@ -143,6 +158,20 @@ async function createReleaseFixture() {
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
   await write(root, "scripts/release-check.js", "export {};\n");
   await write(root, "examples/github-action.yml", "name: Arena\nuses: VasuBansal7576/webmcp-arena@v0.2.0\nif: always()\n");
+  await write(root, ".github/workflows/ci.yml", [
+    "name: CI",
+    "uses: actions/checkout@v4",
+    "uses: actions/setup-node@v4",
+    "node-version: 22",
+    "run: npm ci",
+    "run: npm test",
+    "run: npm run release:check",
+    "run: npx tsc --noEmit --incremental false",
+    "run: npm run build:site",
+    "run: npm pack --dry-run",
+    "run: git diff --check",
+    "",
+  ].join("\n"));
   await write(root, "src/arena-page.js", "document.modelContext.registerTool({ name: 'inspect_boundary_bundle' });\n");
   await write(root, "src/release.js", "export {};\n");
   return root;
