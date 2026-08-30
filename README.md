@@ -1,61 +1,169 @@
-# Agent Contract OS
+# Arena
 
-Production CLI for the implemented scope in `context.md`: passive agent traffic analytics, static agent-readiness checks, `.agent/` contract export, report-only CI gates, and OTLP JSON traces.
+Arena is a Human-vs-Agent Boundary Audit for WebMCP.
+
+WebMCP tells an agent which tools a page exposes. Arena tests the claim behind the tool description: does the agent route preserve the authorization, approval, ownership, spending, and data boundaries enforced by the human route?
+
+```text
+Human route ─┐
+             ├─ authoritative effects ─ compare ─ verdict ─ signed evidence
+Agent route ─┘
+```
+
+Arena does not solve CAPTCHAs or declare an agent safe. It measures one scoped execution, waits for delayed effects to settle, and shows exactly where the two routes differ.
+
+## Human-vs-Agent Checkout Proof
+
+The main demo uses an owned Checkout fixture with two server-controlled implementations:
+
+- `vulnerable`: `preview_checkout` returns a quote, then schedules a hidden $149 charge.
+- `fixed`: the same tool returns the quote and requires confirmation, matching the human route.
+
+The workflow is intentionally split:
+
+1. An agent or human starts a server-owned preset.
+2. Arena records the human baseline and prepares an exact contract.
+3. The interface shows the target, tool, arguments, contract hash, invariants, and assurance tier.
+4. The reviewer approves through a protected interface route carrying a one-time capability bound to that browser session and exact contract. No WebMCP approval tool exists.
+5. Arena runs the agent route, waits for a terminal effect-settlement watermark, and records the final backend state.
+6. The workbench verifies and displays the signed evidence bundle.
+
+Caller-authored recipes, routes, traces, evidence, and approval claims are rejected. The reviewer can be a human or an authorized browser agent; Arena proves that the WebMCP route cannot silently bypass the reviewed interface boundary. Cryptographic human presence is a separate, optional assurance tier.
+
+## Run locally
+
+Arena requires Node.js 22 or newer.
 
 ```bash
-node ./bin/agent-contract.js logs access.log --json
-node ./bin/agent-traffic-parser.js access.log --output json
-node ./bin/agent-contract.js scan https://example.com --json
-node ./bin/agent-contract.js contract https://example.com --out .agent
-node ./bin/agent-contract.js gate https://example.com --mode report --report reports/agent-contract.html --otel-file reports/otel.json
-node ./bin/agent-contract.js gate https://example.com --missions --browser-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-node ./bin/agent-contract.js gate https://example.com --missions --mission-ids create_first_api_request,find_refund_policy,use_mcp_tool_if_available --browser-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-node ./bin/agent-contract.js scan https://example.com/private --auth-profile auth-profile.json
-node ./bin/agent-contract.js scan https://example.com --mcp mcp.json
-node ./bin/agent-contract.js scan https://example.com --agent-skills .agent/agent-skills/index.json
-node ./bin/agent-contract.js monitor https://example.com https://example.com/pricing --missions --browser-executable "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-node ./bin/agent-contract.js fixpack https://example.com --openapi openapi.json --out fix-pack
-OPENAI_API_KEY=... AGENT_CONTRACT_LLM_MODEL=... node ./bin/agent-contract.js fixpack https://example.com --llm-explain --out fix-pack
-node ./bin/agent-contract.js pr-prep fix-pack --repo /path/to/repo --dry-run
-node ./bin/agent-contract.js policy-audit .agent/contract.json --out .agent/audit/policy
-node ./bin/agent-contract.js repo-scan /path/to/repo --json
-npm run solo
+npm ci
+npm test
+npm start
 ```
 
-The gate defaults to `report` mode. Use `--mode blocking` only after calibration.
+Open `http://127.0.0.1:4173` for the full local workbench.
 
-## What Exists
+The hosted challenge application is a separate Vinext/Cloudflare surface:
 
-- NGINX and CloudFront access-log parsing for ClaudeBot, GPTBot, ChatGPT-User, OAI-SearchBot, PerplexityBot, and Google-Extended, exposed through both `agent-contract logs` and `agent-traffic-parser`.
-- Static URL checks for `robots.txt`, sitemap, `llms.txt`, `agent-skills`, JSON-LD, JS-only HTML, cookie blockers, slider/switch controls, datagrid filtering, A/B variant markers, WebMCP registration markers, sampled broken links, JSON OpenAPI quality, and optional MCP manifests.
-- Portable `.agent/` output with `contract.json`, `missions.yml`, `policies.yml`, `llms.txt`, `llms-full.txt`, `agent-skills/index.json`, `openapi-patches.json`, and evidence snapshots.
-- Split-ready `.agent` spec material in `spec/`.
-- HTML/Markdown/JSON reports and OTLP JSON payloads with `gen_ai.*` attributes.
-- Composite GitHub Action wrapper with optional Markdown PR comments and scheduled workflow support.
-- Real browser synthetic missions default to the first three tasks: understand company, find pricing, and find API quickstart, with PNG screenshots, AXTree evidence, deterministic Prune4Web-style pricing slices, and token evidence. The standard six-mission pack is available with `--mission-ids`.
-- Diff-based monitoring: stores page hashes, skips unchanged pages, and reruns only affected missions.
-- MCP manifest audits flag destructive, payment, command-execution, and write-side-effect tools unless they carry an explicit human-approval annotation.
-- Fix pack export: writes reviewable `llms.txt`, JSON-LD, OpenAPI patch suggestions, and RFC 9457 problem details examples.
-- LLM fix explanations are opt-in and provider-gated. No key/model means no LLM output.
-- PR prep applies fix packs to a real git repo as a local branch and commit. Remote PR creation is opt-in and requires explicit confirmation.
-- Repo scan audits local checkouts for `.agent/contract.json`, `llms.txt`, OpenAPI files, and CI gate wiring.
-- Enterprise policy audit writes JSON and Markdown compliance reports from `.agent/contract.json`.
-- Private runner auth profiles use env-backed secrets only and record redacted audit metadata.
-- Local Solo web shell reuses the CLI scanner and fix-pack path at `npm run solo`.
-
-Auth profile values must reference env vars:
-
-```json
-{
-  "name": "private-runner",
-  "headers": {
-    "authorization": { "env": "PRIVATE_TOKEN", "prefix": "Bearer " }
-  }
-}
+```bash
+npm run build:site
+npm run start:site -- --port 4174
 ```
 
-Remote PR creation is opt-in and gated with explicit confirmation. Publishing is verified locally with `npm run release:check`.
+Open `http://127.0.0.1:4174`. The local hosted command explicitly enables ephemeral signing for development. Production fails closed and uses a configured Ed25519 key pair.
 
-## Not Proven By This Repo
+The hosted challenge application registers exactly two tools through the real Promise-returning `document.modelContext.registerTool(...)` API:
 
-The local CLI does not prove market validation steps: customer log access, 5 company pilots, real-site audit corpus, LOIs, domain ownership, public package publication, GitHub stars, or public standard adoption. Track those as external proof, not code proof.
+- `start_measured_checkout_audit`
+- `get_measured_audit_status`
+
+The full local workbench additionally registers:
+
+- `inspect_boundary_bundle`
+- incident-lab and evidence-export tools
+
+Approval is deliberately absent from the WebMCP tool list. The interface remains usable in browsers without the experimental API.
+
+## Static preflight
+
+`arena preflight` is a bounded, non-behavioral inspection:
+
+```bash
+node ./bin/arena.js preflight https://example.com --format json
+```
+
+It provides:
+
+- DNS-pinned public requests with private-network blocking and redirect revalidation.
+- Sticky credential detachment after a redirect leaves the authorized origin.
+- Time, redirect, compressed-response, decoded-response, and charset bounds.
+- Validation of the HTML target, `robots.txt`, sitemap, `llms.txt`, Agent Skills, A2A, MCP, and optional OpenAPI data.
+- Conservative inline-script analysis that ignores comments, strings, JSON scripts, and commented markup.
+- Separate static WebMCP hints with no invented runtime or behavioral score.
+- Query and fragment redaction in authenticated reports.
+
+Static preflight can identify candidates. It cannot prove runtime registration, successful execution, or safety.
+
+The repository also contains a composite GitHub Action; see `examples/github-action.yml`.
+
+## Browser-backed owned-target test
+
+The CLI retains an owned local Arena Gym adapter for native or compatibility-browser verification:
+
+When installed as a package, invoke the same flow with `arena test --target ...`. From this repository, run:
+
+```bash
+node ./bin/arena.js test \
+  --target "http://127.0.0.1:4317/?arena_version=fixed" \
+  --fixture-token "replace-with-at-least-16-characters" \
+  --browser-executable "/path/to/a-compatible-browser" \
+  --browser-mode compatibility \
+  --write-contract "/tmp/arena-contract.json" \
+  --format json
+```
+
+Review the artifact, then run with `--approved-contract /tmp/arena-contract.json`. Direct hash review is also available through `--approve-contract <contract_hash>`.
+
+Exit code `0` is a pass, `1` is a measured divergence, and `2` is review-required, inconclusive, or a setup failure. JSON, SARIF, and JUnit outputs are supported.
+
+Compatibility mode installs a standards-shaped shim and labels the result `compatibility_shim`; it is not native WebMCP proof.
+
+## Evidence and assurance
+
+Arena separates three questions:
+
+| Layer | Establishes | Does not establish |
+| --- | --- | --- |
+| Static preflight | Transport, support-file validity, conservative source candidates | Runtime tools or behavior |
+| Runtime inspection | Registered definitions and browser invocation | Backend outcome by itself |
+| Boundary audit | Paired observed or server-attested effects for one owned target run | Safety of arbitrary sites or future runs |
+
+Checkout evidence is labelled `server_attested` and scoped to `owned_fixture:checkout`. A terminal settlement event and final state are required before a conclusive verdict can be signed. Missing or timed-out settlement produces an unsigned, inconclusive result.
+
+Arena includes:
+
+- Ed25519 evidence attestations with a hash chain.
+- Exact tool, argument, target, contract, reviewer, nonce, and expiry commitments.
+- A tested WebAuthn passkey verifier for origin, RP ID, credential ownership, user presence, user verification, counters, expiry, replay, and signature checks.
+- Scoped agent delegations with expiry, amount limits, revocation, and idempotency.
+- SQLite WAL persistence when the server is launched normally.
+
+The hosted approval control proves traversal of the protected interface-session route; it does not claim biological-human presence. A deployment that claims WebAuthn assurance must register credentials and wire the included passkey verifier into that route.
+
+## Production configuration
+
+The full local workbench fails closed in production unless these are configured:
+
+- `ARENA_SIGNING_SECRET`: at least 32 characters.
+- `ARENA_OPERATOR_TOKEN`: at least 32 characters.
+- `ARENA_TRUSTED_ISSUERS_JSON`: at least one configured agent-identity issuer.
+
+The hosted challenge application fails closed unless both members of one verified Ed25519 pair are configured:
+
+- `ARENA_SIGNING_PRIVATE_JWK`: private JWK JSON, stored as a secret.
+- `ARENA_SIGNING_PUBLIC_JWK`: matching public JWK JSON.
+
+`ARENA_ALLOW_EPHEMERAL_SIGNING=true` is for local development only and must not be enabled in production.
+
+Remote WebMCP inspection and execution are disabled by default. Production blocks private-network targets. Use durable managed storage and protected signing keys for a multi-instance deployment; the included SQLite repository is intended for a single Arena instance.
+
+## Current limitations
+
+- Measured claims are limited to explicit owned-target adapters. Arena does not execute arbitrary third-party WebMCP sites and call the result trustworthy.
+- Arena-issued local demo identities do not establish OpenAI, Anthropic, Google, or another vendor.
+- The hosted approval boundary requires the same protected browser session and a one-time capability; an authorized browser agent can traverse it. Passkey authentication must be configured before claiming cryptographic human presence.
+- Native WebMCP verification requires a compatible visible browser. Automated default tests do not launch an external browser.
+- A valid Arena signature proves integrity and signer possession. Verifiers must still decide whether to trust that Arena instance and claim scope.
+
+## Verify a release
+
+```bash
+npm test
+npm run release:check
+npm pack --dry-run --cache /tmp/arena-npm-cache
+```
+
+The release check enforces the package identity, exact source allowlist, dependency-safe GitHub Action, real WebMCP registration, focused documentation, and absence of retired plans and modules.
+
+## License
+
+Arena is released under the [MIT License](LICENSE).

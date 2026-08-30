@@ -1,6 +1,5 @@
 import { readText, sha256 } from "./util.js";
-
-const DEFAULT_UA = "AgentContractOS/0.1 (+https://agentcontract.dev)";
+import { fetchTextSafely } from "./safe-fetch.js";
 
 export async function loadAgentSkills(input, options = {}) {
   const result = await readSkills(input, options);
@@ -48,23 +47,10 @@ async function readSkills(input, options) {
 }
 
 async function fetchSkills(input, options) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
   try {
-    const response = await fetch(input, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "user-agent": options.userAgent || DEFAULT_UA,
-        accept: "application/json,*/*",
-        ...(options.auth?.headers || {}),
-      },
-    });
-    return { ok: response.ok, url: response.url, status: response.status, text: await response.text() };
+    return await fetchTextSafely(input, { ...options, accept: "application/json,*/*" });
   } catch (error) {
     return { ok: false, url: input, status: 0, text: "", error: error.message };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

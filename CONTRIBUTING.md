@@ -1,13 +1,28 @@
 # Contributing
 
-## Rendering Mode Discipline
+Arena treats evidence boundaries as security boundaries.
 
-Layer 3 static checks use simple mode only: fetched HTML, headers, static text, AXTree-like text extraction, and JSON manifests. Do not add Playwright or screenshots to `src/scanner.js`; if a check needs browser execution, it belongs in Layer 4 missions.
+Use Node.js 22 or newer. Write a failing public-interface test before changing behavior, then run:
 
-Layer 4 missions may use Playwright for navigation and evidence capture. Routing and extraction should prefer accessible text or deterministic DOM text. Screenshots are proof artifacts, not decision input.
+```bash
+npm test
+npm run release:check
+```
 
-When adding a check, label its mode in the code or test name:
+Keep these invariants:
 
-- `static`: HTML/header/manifest/log input only.
-- `mission`: browser-backed task execution.
-- `evidence`: screenshot, trace, or artifact written after a decision.
+- Caller-authored traces never become measured evidence.
+- Human and agent trials remain isolated and share only a stable seed.
+- Approval binds the exact contract hash, tool definition, arguments, and target.
+- A changed or expired binding stops before agent execution.
+- A conclusive result requires a terminal effect-settlement watermark and final state.
+- Page assertions are non-authoritative.
+- Compatibility evidence is never labelled native.
+- Route parity and baseline safety remain separate results.
+- Static preflight never claims runtime WebMCP behavior.
+- Public scanner requests stay DNS-pinned; credentials never return after a cross-origin redirect.
+- Approval is never exposed as a WebMCP tool; it must traverse the protected interface-session route.
+
+The measured `arena test` flow requires the exact contract hash or a reviewed external artifact. Do not replace it with blanket approval.
+
+Before opening a change, verify the smallest relevant test, the full browser-free suite, the release contract, and the package dry run. Browser-dependent checks are explicit opt-ins; do not run an external browser when validation is required to stay inside Codex's built-in browser.

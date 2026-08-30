@@ -1,24 +1,20 @@
-name: Agent Contract Gate
+name: Arena WebMCP Preflight
 
 on:
-  pull_request:
   workflow_dispatch:
-  schedule:
-    - cron: "17 4 * * 1"
+  pull_request:
 
 jobs:
-  agent-contract:
+  preflight:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: VasuBansal7576/webmcp-arena@v0.2.0
         with:
-          node-version: "20"
-      - uses: ./
+          url: https://example.com
+          report: arena-webmcp-preflight.json
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          url: "https://example.com"
-          mode: "report"
-          report: "agent-contract-report.html"
-          markdown-report: "agent-contract-report.md"
-          pr-comment: "true"
-          mcp: "mcp.json"
+          name: arena-webmcp-preflight
+          path: arena-webmcp-preflight.json

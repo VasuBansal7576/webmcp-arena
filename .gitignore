@@ -1,8 +1,15 @@
 node_modules/
 coverage/
 .tmp/
+.arena/
 reports/
 .agent/cache/
 *.log
 .DS_Store
 *.tgz
+*.tsbuildinfo
+.next/
+dist/
+.wrangler/
+.env*
+!.env.example

@@ -30,13 +30,13 @@ test("analyzeHtml detects JS-only pages, JSON-LD, cookie blockers, and links", (
   assert.equal(page.looksJsOnly, true);
   assert.ok(page.dom_tokens > 0);
   assert.equal(page.scriptCount, 4);
-  assert.deepEqual(page.webmcp_components, {
+  assert.deepEqual(page.webmcp_component_keyword_heuristic, {
+    method: "keyword_heuristic",
     detected: [],
     annotated: [],
     unannotated: [],
     score: null,
     coverage: null,
-    estimated_completion_rate_ceiling: null,
   });
   assert.deepEqual(page.links, ["https://example.test/docs", "https://api.example.test/spec"]);
 });
@@ -79,7 +79,7 @@ test("analyzeHtml detects WebMCP markers", () => {
   const html = `<!doctype html>
     <html><body>
       <script type="module">
-        navigator.modelContext.registerTool({ name: "checkout", description: "Complete checkout" });
+        document.modelContext.registerTool({ name: "checkout", description: "Complete checkout" });
       </script>
       <form tool-name="contact_sales" tool-description="Send contact request"></form>
     </body></html>`;
@@ -93,16 +93,16 @@ test("analyzeHtml scores WebMCP component coverage", () => {
     <html><body>
       <a>Pricing</a>
       <form tool-name="contact_sales">Contact sales</form>
-      <script>navigator.modelContext.registerTool({ name: "checkout" })</script>
+      <script>document.modelContext.registerTool({ name: "checkout" })</script>
       <button>Checkout</button>
     </body></html>`);
 
-  assert.deepEqual(page.webmcp_components.detected.sort(), ["checkout", "contact", "pricing"].sort());
-  assert.deepEqual(page.webmcp_components.annotated.sort(), ["checkout", "contact"].sort());
-  assert.deepEqual(page.webmcp_components.unannotated, ["pricing"]);
-  assert.equal(page.webmcp_components.score, 2 / 3);
-  assert.equal(page.webmcp_components.coverage.total, 3);
-  assert.equal(page.webmcp_components.estimated_completion_rate_ceiling.all_annotated, 86.3);
+  assert.deepEqual(page.webmcp_component_keyword_heuristic.detected.sort(), ["checkout", "contact", "pricing"].sort());
+  assert.deepEqual(page.webmcp_component_keyword_heuristic.annotated.sort(), ["checkout", "contact"].sort());
+  assert.deepEqual(page.webmcp_component_keyword_heuristic.unannotated, ["pricing"]);
+  assert.equal(page.webmcp_component_keyword_heuristic.score, 2 / 3);
+  assert.equal(page.webmcp_component_keyword_heuristic.coverage.total, 3);
+  assert.equal("estimated_completion_rate_ceiling" in page.webmcp_component_keyword_heuristic, false);
 });
 
 test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON", async (t) => {
@@ -175,6 +175,7 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   const { port } = server.address();
   const baseUrl = `http://127.0.0.1:${port}`;
   const result = await scanUrl(`${baseUrl}/`, {
+    allowPrivateTargets: true,
     linkLimit: 4,
     openapi: `${baseUrl}/openapi.json`,
     timeoutMs: 2000,
@@ -184,8 +185,10 @@ test("scanUrl checks local readiness files, same-origin links, and OpenAPI JSON"
   assert.equal(result.sitemap.ok, true);
   assert.equal(result.llms.ok, true);
   assert.equal(result.page.hasJsonLd, true);
-  assert.equal(result.readiness.awi.max, 120);
+  assert.equal(result.readiness.awi.max, 100);
   assert.ok(result.readiness.awi.axes.safety <= 20);
+  assert.equal(result.readiness.awi.axes.observability, null);
+  assert.deepEqual(result.readiness.awi.not_scored, ["observability"]);
   assert.equal(result.page.looksJsOnly, false);
   assert.equal(result.openapi.ok, true);
   assert.equal(result.openapi.operation_count, 1);
@@ -246,7 +249,7 @@ test("scanUrl emits agent identity and invalid A2A findings", async (t) => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
 
-  const result = await scanUrl(`http://127.0.0.1:${server.address().port}/`, { linkLimit: 0, timeoutMs: 2000 });
+  const result = await scanUrl(`http://127.0.0.1:${server.address().port}/`, { allowPrivateTargets: true, linkLimit: 0, timeoutMs: 2000 });
   const checks = Object.fromEntries(result.checks.map((check) => [check.id, check]));
 
   assert.equal(checks.agent_auth_undeclared.pass, false);

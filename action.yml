@@ -1,68 +1,41 @@
-name: "Agent Contract Gate"
-description: "Run the Agent Contract OS report/warning/blocking CI gate."
+name: "Arena WebMCP Preflight"
+description: "Run Arena's bounded static WebMCP preflight before a measured boundary audit."
 inputs:
   url:
-    description: "Website URL to scan."
+    description: "Public HTTP(S) page to inspect."
     required: true
-  mode:
-    description: "Gate mode: report, warning, or blocking."
+  mcp:
+    description: "Optional MCP manifest URL or path."
     required: false
-    default: "report"
-  min-score:
-    description: "Minimum readiness score for blocking mode."
-    required: false
-    default: "70"
-  logs:
-    description: "Optional access-log path to include passive agent traffic evidence."
+    default: ""
+  openapi:
+    description: "Optional OpenAPI JSON URL or path."
     required: false
     default: ""
   report:
-    description: "HTML report output path."
+    description: "JSON report path."
     required: false
-    default: "agent-contract-report.html"
-  markdown-report:
-    description: "Markdown report output path for PR comments."
-    required: false
-    default: "agent-contract-report.md"
-  pr-comment:
-    description: "Post the Markdown report as a pull request comment when running on pull_request."
-    required: false
-    default: "false"
-  missions:
-    description: "Run browser-backed synthetic missions."
-    required: false
-    default: "false"
-  browser-executable:
-    description: "Browser executable path for playwright-core."
-    required: false
-    default: ""
-  auth-profile:
-    description: "Optional auth profile JSON path. Secret values must reference environment variables."
-    required: false
-    default: ""
-  mcp:
-    description: "Optional MCP manifest path or URL to audit for dangerous tools."
-    required: false
-    default: ""
-  agent-skills:
-    description: "Optional agent-skills index path or URL. Defaults to /.agent/agent-skills/index.json discovery."
-    required: false
-    default: ""
+    default: "arena-webmcp-preflight.json"
 runs:
   using: "composite"
   steps:
-    - shell: bash
-      run: |
-        args=("${{ inputs.url }}" "--mode" "${{ inputs.mode }}" "--min-score" "${{ inputs.min-score }}" "--report" "${{ inputs.report }}" "--markdown" "${{ inputs.markdown-report }}")
-        if [ -n "${{ inputs.logs }}" ]; then args+=("--logs" "${{ inputs.logs }}"); fi
-        if [ "${{ inputs.missions }}" = "true" ]; then args+=("--missions"); fi
-        if [ -n "${{ inputs.browser-executable }}" ]; then args+=("--browser-executable" "${{ inputs.browser-executable }}"); fi
-        if [ -n "${{ inputs.auth-profile }}" ]; then args+=("--auth-profile" "${{ inputs.auth-profile }}"); fi
-        if [ -n "${{ inputs.mcp }}" ]; then args+=("--mcp" "${{ inputs.mcp }}"); fi
-        if [ -n "${{ inputs.agent-skills }}" ]; then args+=("--agent-skills" "${{ inputs.agent-skills }}"); fi
-        node "$GITHUB_ACTION_PATH/bin/agent-contract.js" gate "${args[@]}"
-    - if: ${{ inputs.pr-comment == 'true' && github.event_name == 'pull_request' }}
+    - name: Use Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Install Arena runtime
+      shell: bash
+      run: npm ci --ignore-scripts --omit=dev --prefix "$GITHUB_ACTION_PATH"
+    - name: Run Arena preflight
       shell: bash
       env:
-        GH_TOKEN: ${{ github.token }}
-      run: gh pr comment "${{ github.event.pull_request.number }}" --body-file "${{ inputs.markdown-report }}"
+        ARENA_INPUT_URL: ${{ inputs.url }}
+        ARENA_INPUT_MCP: ${{ inputs.mcp }}
+        ARENA_INPUT_OPENAPI: ${{ inputs.openapi }}
+        ARENA_INPUT_REPORT: ${{ inputs.report }}
+      run: |
+        set -euo pipefail
+        args=("$ARENA_INPUT_URL" "--format" "json")
+        if [ -n "$ARENA_INPUT_MCP" ]; then args+=("--mcp" "$ARENA_INPUT_MCP"); fi
+        if [ -n "$ARENA_INPUT_OPENAPI" ]; then args+=("--openapi" "$ARENA_INPUT_OPENAPI"); fi
+        node "$GITHUB_ACTION_PATH/bin/arena.js" preflight "${args[@]}" | tee "$ARENA_INPUT_REPORT"

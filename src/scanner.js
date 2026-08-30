@@ -1,36 +1,55 @@
 import { clamp, nowIso, readText, sha256 } from "./util.js";
 import { loadMcpManifest } from "./mcp.js";
 import { loadAgentSkills } from "./skills.js";
-
-const DEFAULT_UA = "AgentContractOS/0.1 (+https://agentcontract.dev)";
+import { fetchTextSafely } from "./safe-fetch.js";
 
 export async function scanUrl(input, options = {}) {
   const startedAt = nowIso();
   const url = new URL(input);
-  const home = await fetchText(url, options);
+  const scopedOptions = { ...options, authOrigin: url.origin };
+  const home = await fetchText(url, scopedOptions);
   const html = home.text;
-  const robots = await optionalFetch(new URL("/robots.txt", url), options);
-  const sitemap = await optionalFetch(new URL("/sitemap.xml", url), options);
-  const llms = await optionalFetch(new URL("/llms.txt", url), options);
-  const openapi = options.openapi ? await fetchOpenApi(options.openapi, options) : null;
-  const mcp = options.mcp ? await loadMcpManifest(options.mcp, options) : null;
-  const agentContract = await loadAgentContract(url, options);
-  const a2a = await loadA2aCard(url, options);
+  const effectiveUrl = new URL(home.url);
+  const robots = await optionalFetch(new URL("/robots.txt", effectiveUrl), scopedOptions);
+  const sitemap = await optionalFetch(new URL("/sitemap.xml", effectiveUrl), scopedOptions);
+  const llms = await optionalFetch(new URL("/llms.txt", effectiveUrl), scopedOptions);
+  const openapi = options.openapi ? await fetchOpenApi(options.openapi, scopedOptions) : null;
+  const mcp = options.mcp ? await loadMcpManifest(options.mcp, scopedOptions) : null;
+  const agentContract = await loadAgentContract(effectiveUrl, scopedOptions);
+  const a2a = await loadA2aCard(effectiveUrl, scopedOptions);
   const agentSkillsRequired = Boolean(options.agentSkills);
-  const agentSkills = await loadAgentSkills(options.agentSkills || new URL("/.agent/agent-skills/index.json", url).href, options);
-  const page = analyzeHtml(html, url, home.headers);
-  const links = await checkLinks(page.links, url, options);
+  const agentSkills = await loadAgentSkills(options.agentSkills || new URL("/.agent/agent-skills/index.json", effectiveUrl).href, scopedOptions);
+  const page = analyzeHtml(html, effectiveUrl, home.headers, {
+    redactSnippets: Boolean(options.auth),
+  });
+  const targetDocumentValid = validTargetDocument(home, page, html);
+  const links = await checkLinks(page.links, effectiveUrl, scopedOptions);
   const cpiRisks = page.critical_elements.filter((item) => item.structural_risk);
+  const robotsValid = validRobots(robots);
+  const sitemapValid = validSitemap(sitemap);
+  const llmsValid = validLlms(llms);
 
   const checks = [
-    check("robots_txt", robots.ok, robots.ok ? "robots.txt found" : "robots.txt missing or unreachable", "medium"),
-    check("sitemap", sitemap.ok, sitemap.ok ? "sitemap.xml found" : "sitemap.xml missing or unreachable", "medium"),
-    check("llms_txt", llms.ok, llms.ok ? "llms.txt found" : "llms.txt missing", "high"),
+    check("target_reachable", home.ok, home.ok ? `Homepage returned HTTP ${home.status}` : `Homepage returned HTTP ${home.status}`, "critical"),
+    check(
+      "target_document_valid",
+      targetDocumentValid,
+      targetDocumentValid
+        ? "Homepage is a meaningful HTML document"
+        : `Homepage is not a meaningful HTML document (${home.contentType || "content type missing"})`,
+      "critical",
+      { content_type: home.contentType, text_length: page.textLength, script_count: page.scriptCount },
+    ),
+    check("robots_txt", robotsValid, robotsValid ? "robots.txt found and parsed" : "robots.txt missing, unreachable, or invalid", "medium"),
+    check("sitemap", sitemapValid, sitemapValid ? "sitemap.xml found and parsed" : "sitemap.xml missing, unreachable, or invalid", "medium"),
+    check("llms_txt", llmsValid, llmsValid ? "llms.txt found and parsed" : "llms.txt missing or invalid", "high"),
     check("json_ld", page.hasJsonLd, page.hasJsonLd ? "JSON-LD found" : "No JSON-LD/schema.org block found", "medium"),
     check(
       "js_only_content",
-      !page.looksJsOnly,
-      page.looksJsOnly ? "Page has low readable HTML and relies on scripts" : "Readable HTML present",
+      page.hasReadableHtml && !page.looksJsOnly,
+      page.looksJsOnly
+        ? "Page has low readable HTML and relies on scripts"
+        : page.hasReadableHtml ? "Readable HTML present" : "No meaningful readable HTML is present",
       "critical",
       { metrics: { dom_tokens: page.dom_tokens, script_count: page.scriptCount, text_length: page.textLength } },
     ),
@@ -52,7 +71,7 @@ export async function scanUrl(input, options = {}) {
     check("slider_switch_interactions", !page.hasSliderSwitchRisk, page.hasSliderSwitchRisk ? "Slider/switch controls detected; verify keyboard and ARIA behavior for agents" : "No obvious slider/switch controls detected", "low"),
     check("datagrid_filtering", !page.hasDatagridRisk, page.hasDatagridRisk ? "Datagrid or filterable table detected; verify filtering is represented in accessible controls" : "No obvious datagrid filtering surface detected", "low"),
     check("ab_test_variants", !page.hasAbVariantRisk, page.hasAbVariantRisk ? "A/B or experiment variant markers detected; run missions against stable variants" : "No obvious A/B variant markers detected", "low"),
-    check("webmcp_registration", page.hasWebMcp, page.hasWebMcp ? "WebMCP tool registration markers detected" : "No WebMCP tool registration markers detected", "info"),
+    check("webmcp_registration", page.hasWebMcp, page.hasWebMcp ? "Static hint of WebMCP registration detected; runtime inspection is still required" : "No WebMCP marker was found in fetched source; runtime state remains unknown", "info"),
     check("broken_links", links.broken.length === 0, links.broken.length ? `${links.broken.length} sampled links failed` : "Sampled links reachable", "high"),
     ...agentAuthChecks(agentContract),
     ...a2aChecks(a2a),
@@ -61,11 +80,21 @@ export async function scanUrl(input, options = {}) {
     ...agentSkillsChecks(agentSkills, agentSkillsRequired),
   ];
 
-  const score = scoreChecks(checks);
+  const score = targetDocumentValid ? scoreChecks(checks) : 0;
   const awi = awiScores(checks, page, agentSkills);
-  return {
+  const report = {
     generated_at: startedAt,
-    source: { type: "website", url: url.href, content_hash: sha256(html) },
+    kind: "arena.webmcp_preflight",
+    version: 1,
+    source: {
+      type: "website",
+      requested_url: url.href,
+      effective_url: effectiveUrl.href,
+      url: effectiveUrl.href,
+      status: home.status,
+      content_type: home.contentType,
+      content_hash: sha256(html),
+    },
     auth_profile: options.auth?.audit || null,
     page,
     robots: pickFetch(robots),
@@ -78,29 +107,28 @@ export async function scanUrl(input, options = {}) {
     agent_skills: agentSkills,
     links,
     checks,
+    webmcp_preflight: {
+      scope: "static_source_hint_only",
+      candidate_count: page.webmcp_candidates.length,
+      candidates: page.webmcp_candidates,
+      external_scripts_uninspected: page.webmcp_evidence.external_scripts_uninspected,
+      runtime_discovered: false,
+      behavior_verified: false,
+      score: null,
+    },
     readiness: {
+      scope: "generic_agent_web_preflight",
       score,
       awi,
       level: score >= 85 ? "gold" : score >= 70 ? "silver" : score >= 50 ? "bronze" : "blocked",
       critical_gaps: checks.filter((item) => !item.pass && item.severity === "critical").map((item) => item.message),
     },
   };
+  return options.auth ? redactAuthenticatedReport(report) : report;
 }
 
 async function fetchText(url, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15000);
-  try {
-    const response = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { "user-agent": options.userAgent || DEFAULT_UA, accept: "text/html,application/json,text/plain,*/*", ...(options.auth?.headers || {}) },
-    });
-    const text = await response.text();
-    return { ok: response.ok, url: response.url, status: response.status, contentType: response.headers.get("content-type") || "", headers: Object.fromEntries(response.headers.entries()), text };
-  } finally {
-    clearTimeout(timeout);
-  }
+  return fetchTextSafely(url, options);
 }
 
 async function optionalFetch(url, options) {
@@ -149,9 +177,9 @@ async function loadA2aCard(baseUrl, options) {
     let endpointStatus = null;
     let endpointReachable = false;
     if (endpoint) {
-      const endpointResult = await optionalFetch(endpoint, options);
+      const endpointResult = await optionalFetch(endpoint, { ...options, auth: null });
       endpointStatus = endpointResult.status;
-      endpointReachable = endpointResult.status > 0 && endpointResult.status < 500;
+      endpointReachable = endpointResult.ok === true;
       if (!endpointReachable) errors.push("declared endpoint is unreachable");
     }
     return {
@@ -190,15 +218,20 @@ async function fetchInput(input, options) {
   }
 }
 
-export function analyzeHtml(html, url = new URL("https://example.invalid"), headers = {}) {
+export function analyzeHtml(html, url = new URL("https://example.invalid"), headers = {}, options = {}) {
   // ponytail: regex extraction is enough for static checks; use parse5 when DOM mutation fidelity matters.
   const withoutScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
   const bodyText = decodeEntities(withoutScripts.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
   const contentHash = sha256(html);
-  const scriptCount = (html.match(/<script\b/gi) || []).length;
+  const scriptMatches = [...String(html).matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+  const scriptCount = scriptMatches.length;
+  const externalScriptCount = scriptMatches.filter((match) => /(?:^|\s)src\s*=/i.test(match[1])).length;
+  const executableScriptCount = scriptMatches.filter((match) => isJavaScriptType(match[1]) &&
+    (/(?:^|\s)src\s*=/i.test(match[1]) || match[2].trim().length >= 10)).length;
   const lowerHtml = html.toLowerCase();
   const headerWebMcp = Object.entries(headers).some(([key, value]) => key.toLowerCase() === "webmcp-enabled" && /^(1|true|yes)$/i.test(String(value)));
-  const webmcpTools = [...html.matchAll(/\btool-name=["']([^"']+)["']/gi), ...html.matchAll(/\bname:\s*["']([^"']+)["']/gi)].map((match) => match[1].toLowerCase());
+  const webmcpCandidates = detectWebMcpCandidates(html);
+  const webmcpTools = webmcpCandidates.map((candidate) => candidate.tool_name).filter(Boolean);
   const criticalElements = criticalElementPositions(bodyText, contentHash);
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
@@ -211,23 +244,336 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
     .filter(Boolean);
 
   return {
-    title: html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || "",
+    title: options.redactSnippets === true ? null : html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim() || "",
     textLength: bodyText.length,
     dom_tokens: estimateTokens(bodyText),
     scriptCount,
     hasJsonLd: /<script[^>]+type=["']application\/ld\+json["']/i.test(html),
     hasCookieBlocker: /\b(cookie|consent|gdpr|privacy preferences)\b/i.test(bodyText) && /\b(accept|reject|manage)\b/i.test(bodyText),
     critical_elements: criticalElements,
-    ipi_risks: ipiRisks(html, contentHash),
+    ipi_risks: ipiRisks(html, contentHash, options.redactSnippets === true),
     hasSliderSwitchRisk: /(?:role|type)=["'](?:slider|switch|range)["']|aria-valuenow|class=["'][^"']*(?:slider|switch|toggle)|data-(?:slider|switch|toggle)/i.test(html),
     hasDatagridRisk: /\brole=["']grid["']|class=["'][^"']*(?:data-grid|datagrid|ag-grid|filterable)|data-grid\b/i.test(html) || (/<table\b/i.test(html) && /\b(filter|sort)\b/i.test(bodyText)),
     hasAbVariantRisk: /\b(?:optimizely|launchdarkly|statsig|growthbook|split\.io|data-experiment|data-variant|ab-test|a\/b test|experiment-id)\b/i.test(lowerHtml),
-    hasWebMcp: headerWebMcp || /\b(?:navigator|document)\.modelContext\b|\.registerTool\s*\(|@mcp-b\/global|\btool-(?:name|description)=["']/i.test(html),
-    webmcp_components: webMcpCoverage(bodyText, webmcpTools),
-    looksJsOnly: bodyText.length < 300 && scriptCount > 3,
+    hasWebMcp: headerWebMcp || webmcpCandidates.length > 0,
+    webmcp_evidence: {
+      level: headerWebMcp || webmcpCandidates.length > 0 ? "static_marker" : "none_in_fetched_source",
+      runtime_discovered: false,
+      behavior_verified: false,
+      external_scripts_uninspected: externalScriptCount,
+    },
+    webmcp_candidates: webmcpCandidates,
+    webmcp_component_keyword_heuristic: webMcpCoverage(bodyText, webmcpTools),
+    hasReadableHtml: bodyText.length >= 20,
+    executableScriptCount,
+    looksJsOnly: bodyText.length < 300 && executableScriptCount > 0,
     links: [...new Set(links)].slice(0, 100),
-    sampleText: bodyText.slice(0, 500),
+    sampleText: options.redactSnippets === true ? null : bodyText.slice(0, 500),
   };
+}
+
+function detectWebMcpCandidates(html) {
+  const sourceHtml = String(html);
+  const scripts = [...sourceHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter((match) => isJavaScriptType(match[1]))
+    .map((match) => tokenizeJavaScript(match[2].replace(/<!--[\s\S]*?-->/g, "")));
+  const candidates = [];
+  for (const tokens of scripts) {
+    candidates.push(...imperativeCandidates(tokens, "document", "current"));
+  }
+  for (const tokens of scripts) {
+    candidates.push(...imperativeCandidates(tokens, "navigator", "legacy"));
+  }
+  const declarativeHtml = sourceHtml
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<(textarea|template|noscript|xmp)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const tags = [...declarativeHtml.matchAll(/<[a-z][^>]*>/gi)].map((match) => match[0]);
+  for (const tag of tags) {
+    const value = htmlAttributeValue(tag, "toolname");
+    if (value) candidates.push({ kind: "declarative", syntax: "explainer", tool_name: value.toLowerCase() });
+  }
+  for (const tag of tags) {
+    const value = htmlAttributeValue(tag, "tool-name");
+    if (value) candidates.push({ kind: "declarative", syntax: "nonstandard", tool_name: value.toLowerCase() });
+  }
+  return [...new Map(candidates.map((candidate) => [JSON.stringify(candidate), candidate])).values()];
+}
+
+function htmlAttributeValue(tag, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = String(tag).match(new RegExp(`(?:^|\\s)${escapedName}\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s"'=<>\u0060]+))`, "i"));
+  return match?.[1] || match?.[2] || match?.[3] || null;
+}
+
+function imperativeCandidates(tokens, owner, syntax) {
+  const aliases = new Set();
+  const functionAliases = new Set();
+  const found = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.type === "identifier" && tokens[index + 1]?.value === "=" &&
+        matchesMember(tokens, index + 2, owner, "modelContext") !== -1) {
+      aliases.add(tokens[index].value);
+    }
+    if (tokens[index]?.value !== "{") continue;
+    const close = findFlatClosingBrace(tokens, index);
+    if (close === -1 || tokens[close + 1]?.value !== "=") continue;
+    if (tokens[close + 2]?.type === "identifier" && tokens[close + 2].value === owner) {
+      const alias = destructuredAlias(tokens, index, close, "modelContext");
+      if (alias) aliases.add(alias);
+    }
+    if (matchesMember(tokens, close + 2, owner, "modelContext") !== -1) {
+      const alias = destructuredAlias(tokens, index, close, "registerTool");
+      if (alias) functionAliases.add(alias);
+    }
+  }
+  for (let index = 0; index < tokens.length; index += 1) {
+    let cursor = matchesMember(tokens, index, owner, "modelContext", "registerTool");
+    if (cursor === -1 && tokens[index]?.type === "identifier" && aliases.has(tokens[index].value)) {
+      cursor = matchesMember(tokens, index, tokens[index].value, "registerTool");
+    }
+    if (cursor === -1 && tokens[index]?.type === "identifier" && functionAliases.has(tokens[index].value)) {
+      cursor = index + 1;
+    }
+    if (cursor === -1 || tokens[cursor]?.value !== "(" || tokens[cursor + 1]?.value !== "{") continue;
+    const name = objectStringProperty(tokens, cursor + 1, "name");
+    if (name) found.push({ kind: "imperative", syntax, tool_name: name.toLowerCase() });
+  }
+  return found;
+}
+
+function matchesMember(tokens, start, owner, ...members) {
+  if (tokens[start]?.type !== "identifier" || tokens[start].value !== owner) return -1;
+  let cursor = start + 1;
+  for (const member of members) {
+    cursor = memberAccess(tokens, cursor, member);
+    if (cursor === -1) return -1;
+  }
+  return cursor;
+}
+
+function memberAccess(tokens, start, member) {
+  if (new Set([".", "?."]).has(tokens[start]?.value) &&
+      new Set(["identifier", "string"]).has(tokens[start + 1]?.type) && tokens[start + 1].value === member) {
+    return start + 2;
+  }
+  const bracket = tokens[start]?.value === "?." ? start + 1 : start;
+  if (tokens[bracket]?.value === "[" && tokens[bracket + 1]?.type === "string" &&
+      tokens[bracket + 1].value === member && tokens[bracket + 2]?.value === "]") {
+    return bracket + 3;
+  }
+  return -1;
+}
+
+function findFlatClosingBrace(tokens, start) {
+  let depth = 0;
+  for (let index = start; index < tokens.length && index < start + 100; index += 1) {
+    if (tokens[index].value === "{") depth += 1;
+    else if (tokens[index].value === "}" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function destructuredAlias(tokens, start, end, property) {
+  for (let index = start + 1; index < end; index += 1) {
+    if (tokens[index]?.type !== "identifier" || tokens[index].value !== property) continue;
+    if (tokens[index + 1]?.value === ":" && tokens[index + 2]?.type === "identifier") return tokens[index + 2].value;
+    return property;
+  }
+  return null;
+}
+
+function objectStringProperty(tokens, start, property) {
+  let depth = 0;
+  for (let index = start; index < tokens.length && index < start + 2_000; index += 1) {
+    const token = tokens[index];
+    if (token.value === "{") depth += 1;
+    else if (token.value === "}") {
+      depth -= 1;
+      if (depth === 0) return null;
+    } else if (depth === 1 && (token.type === "identifier" || token.type === "string") && token.value === property &&
+               tokens[index + 1]?.value === ":" && tokens[index + 2]?.type === "string") {
+      return tokens[index + 2].value;
+    } else if (depth === 1 && token.value === "[" && tokens[index + 1]?.type === "string" &&
+               tokens[index + 1].value === property && tokens[index + 2]?.value === "]" &&
+               tokens[index + 3]?.value === ":" && tokens[index + 4]?.type === "string") {
+      return tokens[index + 4].value;
+    }
+  }
+  return null;
+}
+
+function isJavaScriptType(attributes) {
+  const match = String(attributes).match(/(?:^|\s)type\s*=\s*(["'])([^"']+)\1/i);
+  if (!match) return true;
+  const type = match[2].trim().toLowerCase().split(";")[0];
+  return type === "module" || /^(?:text|application)\/(?:java|ecma)script$/.test(type);
+}
+
+function tokenizeJavaScript(source) {
+  const tokens = [];
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      index = source.indexOf("\n", index + 2);
+      if (index === -1) break;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      const end = source.indexOf("*/", index + 2);
+      index = end === -1 ? source.length : end + 2;
+      continue;
+    }
+    if (char === "/" && isRegexLiteralStart(tokens)) {
+      const end = skipRegexLiteral(source, index);
+      if (end !== -1) {
+        index = end;
+        continue;
+      }
+    }
+    if (char === "\"" || char === "'") {
+      const string = readJavaScriptString(source, index, char);
+      tokens.push({ type: "string", value: string.value });
+      index = string.end;
+      continue;
+    }
+    if (char === "`") {
+      const template = readTemplateLiteral(source, index + 1);
+      for (const expression of template.expressions) tokens.push(...tokenizeJavaScript(expression));
+      index = template.end;
+      continue;
+    }
+    if (/[A-Za-z_$]/.test(char)) {
+      let end = index + 1;
+      while (end < source.length && /[A-Za-z0-9_$]/.test(source[end])) end += 1;
+      tokens.push({ type: "identifier", value: source.slice(index, end) });
+      index = end;
+      continue;
+    }
+    if (char === "?" && source[index + 1] === ".") {
+      tokens.push({ type: "punctuation", value: "?." });
+      index += 2;
+      continue;
+    }
+    tokens.push({ type: "punctuation", value: char });
+    index += 1;
+  }
+  return tokens;
+}
+
+function isRegexLiteralStart(tokens) {
+  const previous = tokens.at(-1);
+  if (!previous) return true;
+  if (previous.type === "identifier") {
+    return new Set(["await", "case", "delete", "do", "else", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"]).has(previous.value);
+  }
+  if (previous.value === ")" && closesControlFlowHeader(tokens)) return true;
+  if (previous.value === "}" && closesStatementBlock(tokens)) return true;
+  return new Set(["(", "[", "{", ",", ":", ";", "=", "!", "?", "&", "|", "+", "-", "*", "%", "^", "~", "<", ">"]).has(previous.value);
+}
+
+function closesControlFlowHeader(tokens) {
+  const open = matchingOpeningToken(tokens, tokens.length - 1, "(", ")");
+  return open > 0 && tokens[open - 1]?.type === "identifier" &&
+    new Set(["catch", "for", "if", "switch", "while", "with"]).has(tokens[open - 1].value);
+}
+
+function closesStatementBlock(tokens) {
+  const open = matchingOpeningToken(tokens, tokens.length - 1, "{", "}");
+  if (open === 0) return true;
+  const before = tokens[open - 1];
+  if (before?.value === ")") return true;
+  if (before?.value === ">" && tokens[open - 2]?.value === "=") return true;
+  return before?.type === "identifier" && new Set(["do", "else", "finally", "try"]).has(before.value);
+}
+
+function matchingOpeningToken(tokens, closeIndex, openValue, closeValue) {
+  let depth = 0;
+  for (let index = closeIndex; index >= 0; index -= 1) {
+    if (tokens[index]?.value === closeValue) depth += 1;
+    else if (tokens[index]?.value === openValue && --depth === 0) return index;
+  }
+  return -1;
+}
+
+function skipRegexLiteral(source, start) {
+  let index = start + 1;
+  let inCharacterClass = false;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === "\n" || char === "\r") return -1;
+    if (char === "\\") {
+      index += 2;
+      continue;
+    }
+    if (char === "[") inCharacterClass = true;
+    else if (char === "]") inCharacterClass = false;
+    else if (char === "/" && !inCharacterClass) {
+      index += 1;
+      while (index < source.length && /[A-Za-z]/.test(source[index])) index += 1;
+      return index;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+function readJavaScriptString(source, start, quote) {
+  let value = "";
+  let index = start + 1;
+  while (index < source.length) {
+    const char = source[index];
+    if (char === quote) return { value, end: index + 1 };
+    if (char === "\\") {
+      const next = source[index + 1];
+      const escapes = { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v", "0": "\0" };
+      value += Object.hasOwn(escapes, next) ? escapes[next] : next || "";
+      index += 2;
+      continue;
+    }
+    value += char;
+    index += 1;
+  }
+  return { value, end: source.length };
+}
+
+function readTemplateLiteral(source, start) {
+  const expressions = [];
+  let index = start;
+  while (index < source.length) {
+    if (source[index] === "\\") index += 2;
+    else if (source[index] === "`") return { end: index + 1, expressions };
+    else if (source[index] === "$" && source[index + 1] === "{") {
+      const expressionStart = index + 2;
+      let cursor = expressionStart;
+      let depth = 1;
+      while (cursor < source.length && depth > 0) {
+        const char = source[cursor];
+        if (char === "\"" || char === "'") cursor = readJavaScriptString(source, cursor, char).end;
+        else if (char === "`") cursor = readTemplateLiteral(source, cursor + 1).end;
+        else if (char === "/" && source[cursor + 1] === "/") {
+          const end = source.indexOf("\n", cursor + 2);
+          cursor = end === -1 ? source.length : end;
+        } else if (char === "/" && source[cursor + 1] === "*") {
+          const end = source.indexOf("*/", cursor + 2);
+          cursor = end === -1 ? source.length : end + 2;
+        } else {
+          if (char === "{") depth += 1;
+          else if (char === "}") depth -= 1;
+          cursor += 1;
+        }
+      }
+      if (depth === 0) expressions.push(source.slice(expressionStart, cursor - 1));
+      index = cursor;
+    } else index += 1;
+  }
+  return { end: source.length, expressions };
 }
 
 async function checkLinks(links, baseUrl, options) {
@@ -356,6 +702,29 @@ function check(id, pass, message, severity = "medium", details = {}) {
   };
 }
 
+function validRobots(result) {
+  return result.ok && /^\s*user-agent\s*:/im.test(result.text || "");
+}
+
+function validTargetDocument(home, page, html) {
+  if (!home.ok || !/^(?:text\/html|application\/xhtml\+xml)(?:\s*;|$)/i.test(home.contentType || "")) return false;
+  const hasHtmlStructure = /<!doctype\s+html\b|<html\b|<body\b|<main\b/i.test(String(html));
+  const hasMeaningfulSurface = page.hasReadableHtml || page.executableScriptCount > 0;
+  return hasHtmlStructure && hasMeaningfulSurface;
+}
+
+function validSitemap(result) {
+  if (!result.ok) return false;
+  const text = String(result.text || "").trim();
+  return /^<\?xml\b[^>]*>\s*/i.test(text) && /<(?:urlset|sitemapindex)\b/i.test(text);
+}
+
+function validLlms(result) {
+  if (!result.ok) return false;
+  const text = String(result.text || "").trim();
+  return text.length >= 16 && /^#{1,6}\s+\S+/m.test(text);
+}
+
 function scoreChecks(checks) {
   const weight = { critical: 30, high: 15, medium: 8, low: 3, info: 0 };
   const lost = checks.filter((item) => !item.pass).reduce((sum, item) => sum + (weight[item.severity] ?? 5), 0);
@@ -368,15 +737,23 @@ function estimateTokens(text) {
 
 function awiScores(checks, page, agentSkills) {
   const failed = new Set(checks.filter((item) => !item.pass).map((item) => item.id));
+  const invalidTarget = failed.has("target_reachable") || failed.has("target_document_valid");
+  const ipiCheck = checks.find((item) => item.id === "ipi_risk");
+  const ipiLoss = ipiCheck?.pass === false ? (ipiCheck.severity === "critical" ? 16 : 10) : 0;
   const axes = {
-    safety: axis(20, failed.has("mcp_dangerous_tools") ? 12 : 0, failed.has("cookie_modal") ? 4 : 0),
-    efficiency: axis(20, failed.has("js_only_content") ? 12 : 0, page.dom_tokens > 5000 ? 4 : 0),
-    standardization: axis(20, failed.has("llms_txt") ? 8 : 0, failed.has("mcp_spec_version") ? 4 : 0, page.hasWebMcp ? 0 : 2),
-    discoverability: axis(20, failed.has("sitemap") ? 5 : 0, failed.has("json_ld") ? 5 : 0, agentSkills.discovered ? 0 : 3, failed.has("a2a_card_absent") || failed.has("a2a_card_invalid") ? 2 : 0),
-    observability: 20,
-    policy_compliance: axis(20, failed.has("robots_txt") ? 5 : 0, failed.has("mcp_dangerous_tools") ? 10 : 0, failed.has("agent_auth_undeclared") ? 2 : 0),
+    safety: invalidTarget ? 0 : axis(20, failed.has("mcp_dangerous_tools") ? 12 : 0, failed.has("cookie_modal") ? 4 : 0, ipiLoss),
+    efficiency: invalidTarget ? 0 : axis(20, failed.has("js_only_content") ? 12 : 0, page.dom_tokens > 5000 ? 4 : 0),
+    standardization: invalidTarget ? 0 : axis(20, failed.has("llms_txt") ? 8 : 0, failed.has("mcp_spec_version") ? 4 : 0, page.hasWebMcp ? 0 : 2),
+    discoverability: invalidTarget ? 0 : axis(20, failed.has("sitemap") ? 5 : 0, failed.has("json_ld") ? 5 : 0, agentSkills.discovered ? 0 : 3, failed.has("a2a_card_absent") || failed.has("a2a_card_invalid") ? 2 : 0),
+    observability: null,
+    policy_compliance: invalidTarget ? 0 : axis(20, failed.has("robots_txt") ? 5 : 0, failed.has("mcp_dangerous_tools") ? 10 : 0, failed.has("agent_auth_undeclared") ? 2 : 0),
   };
-  return { total: Object.values(axes).reduce((sum, value) => sum + value, 0), max: 120, axes };
+  return {
+    total: Object.values(axes).filter(Number.isFinite).reduce((sum, value) => sum + value, 0),
+    max: 100,
+    axes,
+    not_scored: ["observability"],
+  };
 }
 
 function axis(max, ...losses) {
@@ -390,17 +767,12 @@ function webMcpCoverage(text, toolNames) {
   const score = detected.length ? annotated.length / detected.length : null;
   const unannotated = detected.filter((item) => !annotated.includes(item));
   return {
+    method: "keyword_heuristic",
     detected,
     annotated,
     unannotated,
     score,
     coverage: detected.length ? { annotated: annotated.length, unannotated: unannotated.length, total: detected.length } : null,
-    estimated_completion_rate_ceiling: score === null ? null : {
-      current: Math.round((61.7 + (86.3 - 61.7) * score) * 10) / 10,
-      all_annotated: 86.3,
-      baseline_unannotated: 61.7,
-      source: "CI4A arXiv:2601.14790",
-    },
   };
 }
 
@@ -422,7 +794,7 @@ function criticalElementPositions(text, contentHash) {
   });
 }
 
-function ipiRisks(html, contentHash) {
+function ipiRisks(html, contentHash, redactSnippets = false) {
   const rules = [
     { severity: "high", pattern: /aria-label=["'][^"']{0,80}(ignore|disregard|instead|override|new instruction)[^"']*["']/i },
     { severity: "high", pattern: /style=["'][^"']*(?:opacity:\s*0|display:\s*none)[^"']*["'][^>]*>[^<]*(you must|your task is now|ignore previous)/i },
@@ -434,11 +806,18 @@ function ipiRisks(html, contentHash) {
     const match = rule.pattern.exec(html);
     if (!match) return [];
     const snippet = match[0].replace(/\s+/g, " ").slice(0, 220);
-    return [{ severity: rule.severity, snippet, content_hash: `sha256:${sha256(snippet)}`, page_content_hash: `sha256:${contentHash}` }];
+    return [{
+      severity: rule.severity,
+      ...(redactSnippets ? {} : { snippet }),
+      content_hash: `sha256:${sha256(snippet)}`,
+      page_content_hash: `sha256:${contentHash}`,
+    }];
   });
 }
 
 const TAXONOMY = {
+  target_reachable: "Arena::StaticPreflight::Transport",
+  target_document_valid: "Arena::StaticPreflight::Document",
   js_only_content: "AWI::DOMComplexity",
   content_position_index: "LostInTheMiddle::ContentPositionIndex",
   ipi_risk: "WebAgentSecurity::IndirectPromptInjection",
@@ -458,6 +837,8 @@ const TAXONOMY = {
 };
 
 const DIMENSION = {
+  target_reachable: "discoverability",
+  target_document_valid: "discoverability",
   ipi_risk: "safety",
   cookie_modal: "safety",
   mcp_dangerous_tools: "safety",
@@ -498,7 +879,26 @@ const FRAMING = {
 };
 
 function pickFetch(result) {
-  return { ok: result.ok, url: result.url, status: result.status, contentType: result.contentType, bytes: result.text?.length || 0, error: result.error };
+  return { ok: result.ok, url: result.url, status: result.status, contentType: result.contentType, bytes: Buffer.byteLength(result.text || ""), error: result.error };
+}
+
+function redactAuthenticatedReport(value) {
+  if (Array.isArray(value)) return value.map(redactAuthenticatedReport);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, redactAuthenticatedReport(child)]));
+  }
+  if (typeof value !== "string") return value;
+  try {
+    const url = new URL(value);
+    if (!new Set(["http:", "https:"]).has(url.protocol)) return value;
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.href;
+  } catch {
+    return value;
+  }
 }
 
 function decodeEntities(value) {

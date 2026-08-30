@@ -49,6 +49,7 @@ test("scanUrl includes MCP checks and lowers readiness for dangerous tools", asy
   }));
 
   const result = await scanUrl(`http://127.0.0.1:${server.address().port}/`, {
+    allowPrivateTargets: true,
     mcp: mcpPath,
     linkLimit: 0,
   });
