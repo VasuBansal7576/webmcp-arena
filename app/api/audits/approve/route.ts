@@ -1,10 +1,10 @@
 import { completeHostedAudit, publicHostedAudit } from "@/src/hosted-audit.js";
 import {
+  approvalCapabilityProof,
   auditSessionFromRequest,
   sameOriginMutation,
-  verifyApprovalCapability,
 } from "@/src/audit-capability.js";
-import { claimApproval, loadAudit, saveAudit } from "@/lib/audit-store";
+import { claimApproval, saveAudit } from "@/lib/audit-store";
 import { signEvidence } from "@/lib/evidence-signing";
 
 export const runtime = "edge";
@@ -26,21 +26,26 @@ export async function POST(request: Request) {
   const sessionId = auditSessionFromRequest(request);
   if (!sessionId) return Response.json({ error: "approval session is missing or expired" }, { status: 403 });
 
-  let record = await loadAudit(auditId);
-  if (!record) return Response.json({ error: "audit not found" }, { status: 404 });
-  if (!await verifyApprovalCapability(record, { capability: approvalCapability, sessionId })) {
+  const proof = await approvalCapabilityProof({ capability: approvalCapability, sessionId });
+  if (!proof) {
     return Response.json({ error: "approval capability is invalid or belongs to another browser session" }, { status: 403 });
   }
 
-  const claimed = await claimApproval(auditId, Date.now());
+  const claimed = await claimApproval({ id: auditId, now: Date.now(), proof });
   if (claimed.status === "missing") return Response.json({ error: "audit not found" }, { status: 404 });
   if (claimed.status === "expired") return Response.json({ error: "review window expired; start a new audit" }, { status: 410 });
   if (claimed.status === "completed") return noStore(publicHostedAudit(claimed.record));
-  if (!new Set(["claimed", "reclaimed"]).has(claimed.status) || !claimed.record || !claimed.leaseId) {
+  if (claimed.status === "invalid") {
+    return Response.json({ error: "approval capability is invalid or belongs to another browser session" }, { status: 403 });
+  }
+  if (claimed.status === "failed") {
+    return Response.json({ error: "the prior fixture execution lease expired; start a new audit" }, { status: 409 });
+  }
+  if (claimed.status !== "claimed" || !claimed.record || !claimed.leaseId) {
     return Response.json({ error: "audit is already running or was already reviewed" }, { status: 409 });
   }
 
-  record = claimed.record;
+  const record = claimed.record;
   const leaseId = claimed.leaseId;
   let persistedState = "running";
   try {

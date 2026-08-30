@@ -44,6 +44,11 @@ test("hosted vulnerable audit executes the owned route and observes its delayed 
   assert.equal(result.verification.hashValid, true);
   assert.equal(result.findings.some((finding) => finding.code === "unexpected_consequential_effect"), true);
   assert.equal(result.evidence.approval.reviewedContractHash, record.review.contractHash);
+  assert.equal(result.evidence.approval.expiresAt, record.expiresAt);
+  assert.equal(result.evidence.approval.nonceId, privateApproval.nonceId);
+  assert.equal(result.evidence.approval.sessionCommitment, privateApproval.sessionHash);
+  assert.equal(result.evidence.approval.reviewerClaim, "same_origin_interface_session_controller");
+  assert.equal(result.evidence.approval.assuranceClaim, "session_capability_verified_human_presence_not_attested");
 });
 
 test("hosted fixed audit executes matching routes and preserves both audit layers", async () => {
@@ -68,12 +73,58 @@ test("execution fails closed without an approval receipt bound to target, tool, 
   await assert.rejects(() => completeHostedAudit(record), /approval is not bound/);
 });
 
+test("execution rejects a stored target review even when the receipt is changed to match it", async () => {
+  const record = approve(await createHostedAudit({ id: vulnerableId, version: "vulnerable", privateApproval, now }));
+  record.review.targetHash = "D".repeat(43);
+  record.approval.reviewedTargetHash = record.review.targetHash;
+
+  await assert.rejects(
+    () => completeHostedAudit(record, { now: now + 2_000 }),
+    /executable checkout target no longer matches the reviewed target/,
+  );
+});
+
+test("execution rejects tampering with every signed approval commitment", async (t) => {
+  const cases = [
+    ["nonce", { nonceId: "different_nonce_value" }],
+    ["session commitment", { sessionCommitment: "C".repeat(43) }],
+    ["expiry", { expiresAt: new Date(now + 9 * 60_000).toISOString() }],
+    ["reviewer claim", { reviewerClaim: "biological_human" }],
+    ["assurance claim", { assuranceClaim: "human_presence_verified" }],
+    ["approval after expiry", { approvedAt: new Date(now + 10 * 60_000 + 1).toISOString() }],
+  ];
+
+  for (const [name, mutation] of cases) {
+    await t.test(name, async () => {
+      const record = approve(await createHostedAudit({ id: vulnerableId, version: "vulnerable", privateApproval, now }));
+      Object.assign(record.approval, mutation);
+      await assert.rejects(
+        () => completeHostedAudit(record, { now: now + 2_000 }),
+        /approval receipt/,
+      );
+    });
+  }
+
+  await t.test("unattested human-presence claim", async () => {
+    const record = approve(await createHostedAudit({ id: vulnerableId, version: "vulnerable", privateApproval, now }));
+    record.approval.humanPresence = "verified";
+    await assert.rejects(
+      () => completeHostedAudit(record, { now: now + 2_000 }),
+      /approval receipt/,
+    );
+  });
+});
+
 function approve(record) {
   record.approval = {
     status: "approved",
     method: "one_time_interface_session_capability",
     nonceId: privateApproval.nonceId,
     approvedAt: new Date(now + 1_000).toISOString(),
+    expiresAt: record.expiresAt,
+    sessionCommitment: privateApproval.sessionHash,
+    reviewerClaim: "same_origin_interface_session_controller",
+    assuranceClaim: "session_capability_verified_human_presence_not_attested",
     reviewedTargetHash: record.review.targetHash,
     reviewedToolHash: record.review.toolHash,
     reviewedArgumentsHash: record.review.argumentsHash,

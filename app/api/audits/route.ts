@@ -30,9 +30,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "a valid idempotency key is required" }, { status: 400 });
   }
 
+  let phase = "session initialization";
   try {
     const now = Date.now();
     const session = await ensureAuditSession(request);
+    phase = "idempotency lookup";
     const storageKey = await hashAuditIdempotency({ sessionHash: session.sessionHash, version, key: idempotencyKey });
     let existing = await loadAuditByIdempotencyKey(storageKey);
     if (existing) {
@@ -45,7 +47,9 @@ export async function POST(request: Request) {
       return auditResponse(existing, null, session.setCookie);
     }
 
+    phase = "approval capability creation";
     const approval = await createApprovalCapability(session.sessionHash);
+    phase = "hosted audit preparation";
     const record = await createHostedAudit({
       id: crypto.randomUUID(),
       version,
@@ -53,6 +57,7 @@ export async function POST(request: Request) {
       now,
     });
     try {
+      phase = "audit insertion";
       await insertAudit(record, storageKey);
     } catch (error) {
       existing = await loadAuditByIdempotencyKey(storageKey);
@@ -64,10 +69,11 @@ export async function POST(request: Request) {
       }
       return auditResponse(existing, replacement.capability, session.setCookie);
     }
+    phase = "expired audit cleanup";
     await pruneExpiredAudits(now);
     return auditResponse(record, approval.capability, session.setCookie, 201);
   } catch (error) {
-    console.error("Arena audit creation failed", error);
+    console.error(`Arena audit creation failed during ${phase}`, error);
     return Response.json({ error: "Arena could not prepare the audit" }, { status: 500 });
   }
 }

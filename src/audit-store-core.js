@@ -1,0 +1,250 @@
+const EXECUTION_LEASE_MS = 30_000;
+const DIGEST = /^[A-Za-z0-9_-]{43}$/;
+const NONCE = /^[A-Za-z0-9_-]{16,128}$/;
+const EXECUTION_STATES = new Set(["running", "waiting_for_effects"]);
+
+export function createAuditStore(getDb) {
+  if (typeof getDb !== "function") throw new TypeError("an audit database provider is required");
+
+  async function insertAudit(record, idempotencyKey) {
+    const db = await getDb();
+    const createdAt = Date.parse(String(record.createdAt));
+    const updatedAt = Date.parse(String(record.updatedAt));
+    const expiresAt = Date.parse(String(record.expiresAt));
+    await db.prepare("INSERT INTO audits (id, idempotency_key, version, state, created_at, updated_at, expires_at, lease_id, lease_expires_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)")
+      .bind(record.id, idempotencyKey, record.version, record.state, createdAt, updatedAt, expiresAt, JSON.stringify(record)).run();
+  }
+
+  async function loadAudit(id) {
+    const row = await loadAuditRow(await getDb(), id);
+    return row ? parseRecord(row.payload) : null;
+  }
+
+  async function loadAuditByIdempotencyKey(idempotencyKey) {
+    const db = await getDb();
+    const row = await db.prepare("SELECT payload FROM audits WHERE idempotency_key = ?").bind(idempotencyKey).first();
+    return row ? parseRecord(row.payload) : null;
+  }
+
+  async function claimApproval({ id, now, proof }) {
+    const db = await getDb();
+    const row = await loadAuditRow(db, id);
+    if (!row) return claimResult("missing");
+
+    const record = parseRecord(row.payload);
+    record.state = row.state;
+    if (row.state === "completed") return claimResult("completed", record);
+    if (row.state === "failed") return claimResult("conflict", record);
+
+    if (row.state === "awaiting_approval" && row.expires_at <= now) {
+      const failed = await markFailedIfCurrent(db, row, now, "approval_window_expired");
+      return claimResult("expired", failed || await loadAudit(id));
+    }
+
+    if (EXECUTION_STATES.has(row.state)) {
+      if (row.lease_expires_at !== null && row.lease_expires_at > now) {
+        return claimResult("conflict", record);
+      }
+      const failed = await markFailedIfCurrent(db, row, now, "execution_lease_expired");
+      return failed
+        ? claimResult("failed", failed)
+        : claimResult("conflict", await loadAudit(id));
+    }
+
+    if (row.state !== "awaiting_approval" || !isApprovalProof(proof)) {
+      return claimResult("invalid", record);
+    }
+
+    const privateApproval = record.privateApproval;
+    const review = record.review;
+    if (!isPrivateApproval(privateApproval) || !isReviewBinding(review)) {
+      return claimResult("invalid", record);
+    }
+
+    const leaseId = crypto.randomUUID();
+    const leaseExpiresAt = now + EXECUTION_LEASE_MS;
+    const updatedAt = new Date(now).toISOString();
+    const approvedRecord = structuredClone(record);
+    approvedRecord.state = "running";
+    approvedRecord.updatedAt = updatedAt;
+    approvedRecord.approval = {
+      status: "approved",
+      method: "one_time_interface_session_capability",
+      nonceId: privateApproval.nonceId,
+      approvedAt: updatedAt,
+      expiresAt: record.expiresAt,
+      sessionCommitment: privateApproval.sessionHash,
+      reviewerClaim: "same_origin_interface_session_controller",
+      assuranceClaim: "session_capability_verified_human_presence_not_attested",
+      reviewedContractHash: review.contractHash,
+      reviewedTargetHash: review.targetHash,
+      reviewedToolHash: review.toolHash,
+      reviewedArgumentsHash: review.argumentsHash,
+    };
+    approvedRecord.history = [...record.history, { state: "running", at: updatedAt }];
+
+    const result = await db.prepare(`UPDATE audits
+      SET state = 'running', updated_at = ?, lease_id = ?, lease_expires_at = ?, payload = ?
+      WHERE id = ? AND state = 'awaiting_approval' AND expires_at > ? AND updated_at = ?
+        AND json_extract(payload, '$.privateApproval.capabilityHash') = ?
+        AND json_extract(payload, '$.privateApproval.sessionHash') = ?
+        AND json_extract(payload, '$.privateApproval.nonceId') = ?
+        AND json_extract(payload, '$.review.contractHash') = ?
+        AND json_extract(payload, '$.review.targetHash') = ?
+        AND json_extract(payload, '$.review.toolHash') = ?
+        AND json_extract(payload, '$.review.argumentsHash') = ?`)
+      .bind(
+        now,
+        leaseId,
+        leaseExpiresAt,
+        JSON.stringify(approvedRecord),
+        id,
+        now,
+        row.updated_at,
+        proof.capabilityHash,
+        proof.sessionHash,
+        privateApproval.nonceId,
+        review.contractHash,
+        review.targetHash,
+        review.toolHash,
+        review.argumentsHash,
+      ).run();
+
+    if (changed(result)) return claimResult("claimed", approvedRecord, leaseId);
+
+    const current = await loadAuditRow(db, id);
+    if (!current) return claimResult("missing");
+    const currentRecord = parseRecord(current.payload);
+    if (current.state === "completed") return claimResult("completed", currentRecord);
+    if (current.state === "awaiting_approval" && !proofMatches(currentRecord.privateApproval, proof)) {
+      return claimResult("invalid", currentRecord);
+    }
+    return claimResult("conflict", currentRecord);
+  }
+
+  async function rotateApprovalCapability(record, privateApproval, now) {
+    const previous = record?.privateApproval;
+    if (record?.state !== "awaiting_approval" ||
+        !isPrivateApproval(previous) ||
+        !isPrivateApproval(privateApproval) ||
+        previous.sessionHash !== privateApproval.sessionHash ||
+        Date.parse(String(record.expiresAt)) <= now) return false;
+
+    const db = await getDb();
+    const previousUpdatedAt = Date.parse(String(record.updatedAt));
+    const next = structuredClone(record);
+    next.privateApproval = structuredClone(privateApproval);
+    next.updatedAt = new Date(now).toISOString();
+    const result = await db.prepare(`UPDATE audits SET updated_at = ?, payload = ?
+      WHERE id = ? AND state = 'awaiting_approval' AND updated_at = ? AND expires_at > ?
+        AND json_extract(payload, '$.privateApproval.capabilityHash') = ?
+        AND json_extract(payload, '$.privateApproval.sessionHash') = ?
+        AND json_extract(payload, '$.privateApproval.nonceId') = ?`)
+      .bind(
+        now,
+        JSON.stringify(next),
+        record.id,
+        previousUpdatedAt,
+        now,
+        previous.capabilityHash,
+        previous.sessionHash,
+        previous.nonceId,
+      ).run();
+    if (!changed(result)) return false;
+    Object.assign(record, next);
+    return true;
+  }
+
+  async function saveAudit(record, { expectedState, leaseId, releaseLease = false }) {
+    const db = await getDb();
+    const updatedAt = Date.parse(String(record.updatedAt));
+    const leaseExpiresAt = releaseLease ? null : Date.now() + EXECUTION_LEASE_MS;
+    const result = await db.prepare("UPDATE audits SET state = ?, updated_at = ?, lease_id = ?, lease_expires_at = ?, payload = ? WHERE id = ? AND state = ? AND lease_id = ?")
+      .bind(record.state, updatedAt, releaseLease ? null : leaseId, leaseExpiresAt, JSON.stringify(record), record.id, expectedState, leaseId).run();
+    if (!changed(result)) throw new Error("audit execution lease was lost");
+  }
+
+  async function pruneExpiredAudits(now, limit = 50) {
+    const db = await getDb();
+    const candidates = await db.prepare(`SELECT id, state, updated_at, expires_at, lease_id, lease_expires_at, payload
+      FROM audits
+      WHERE (state = 'awaiting_approval' AND expires_at <= ?)
+         OR (state IN ('running', 'waiting_for_effects') AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
+      ORDER BY updated_at LIMIT ?`).bind(now, now, limit).all();
+
+    let failed = 0;
+    for (const row of candidates.results || []) {
+      const reason = row.state === "awaiting_approval" ? "approval_window_expired" : "execution_lease_expired";
+      if (await markFailedIfCurrent(db, row, now, reason)) failed += 1;
+    }
+
+    const deletion = await db.prepare("DELETE FROM audits WHERE id IN (SELECT id FROM audits WHERE expires_at < ? AND state IN ('completed', 'failed') ORDER BY expires_at LIMIT ?)")
+      .bind(now, limit).run();
+    return { failed, pruned: Number(deletion?.meta?.changes || 0) };
+  }
+
+  return Object.freeze({
+    claimApproval,
+    insertAudit,
+    loadAudit,
+    loadAuditByIdempotencyKey,
+    pruneExpiredAudits,
+    rotateApprovalCapability,
+    saveAudit,
+  });
+}
+
+async function loadAuditRow(db, id) {
+  return db.prepare("SELECT id, state, updated_at, expires_at, lease_id, lease_expires_at, payload FROM audits WHERE id = ?")
+    .bind(id).first();
+}
+
+async function markFailedIfCurrent(db, row, now, reason) {
+  const record = parseRecord(row.payload);
+  const updatedAt = new Date(now).toISOString();
+  record.state = "failed";
+  record.updatedAt = updatedAt;
+  record.failure = { code: reason, at: updatedAt, retrySafe: false };
+  record.history = [...record.history, { state: "failed", at: updatedAt, reason }];
+
+  const leaseGuard = row.state === "awaiting_approval"
+    ? "expires_at <= ?"
+    : "lease_id IS ? AND (lease_expires_at IS NULL OR lease_expires_at <= ?)";
+  const guardValues = row.state === "awaiting_approval" ? [now] : [row.lease_id, now];
+  const result = await db.prepare(`UPDATE audits
+    SET state = 'failed', updated_at = ?, lease_id = NULL, lease_expires_at = NULL, payload = ?
+    WHERE id = ? AND state = ? AND updated_at = ? AND ${leaseGuard}`)
+    .bind(now, JSON.stringify(record), row.id, row.state, row.updated_at, ...guardValues).run();
+  return changed(result) ? record : null;
+}
+
+function parseRecord(payload) {
+  return JSON.parse(String(payload));
+}
+
+function claimResult(status, record = null, leaseId = null) {
+  return { status, record, leaseId };
+}
+
+function changed(result) {
+  return Number(result?.meta?.changes || 0) === 1;
+}
+
+function isApprovalProof(value) {
+  return value && DIGEST.test(value.capabilityHash || "") && DIGEST.test(value.sessionHash || "");
+}
+
+function isPrivateApproval(value) {
+  return isApprovalProof(value) && NONCE.test(value.nonceId || "");
+}
+
+function isReviewBinding(value) {
+  return value && [value.contractHash, value.targetHash, value.toolHash, value.argumentsHash]
+    .every((digest) => DIGEST.test(digest || ""));
+}
+
+function proofMatches(privateApproval, proof) {
+  return isPrivateApproval(privateApproval) && isApprovalProof(proof) &&
+    privateApproval.capabilityHash === proof.capabilityHash &&
+    privateApproval.sessionHash === proof.sessionHash;
+}

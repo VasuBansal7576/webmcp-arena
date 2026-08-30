@@ -140,7 +140,7 @@ export default function Home() {
 
       <section className="workbench" aria-labelledby="proof-title">
         <div className="section-heading"><div><p className="eyebrow">Live owned-target audit</p><h2 id="proof-title">Human-vs-Agent Checkout Proof</h2></div><span className={`state-pill ${verdict || audit?.state || "idle"}`}>{audit?.state?.replaceAll("_", " ") || "not started"}</span></div>
-        <p className="section-copy">An agent may prepare and poll this audit through WebMCP. Approval must traverse the explicit interface route carrying a one-time capability bound to the reviewed contract and browser session. Arena then executes both owned routes and observes effects through a terminal settlement watermark.</p>
+        <p className="section-copy">An agent may prepare and poll this audit through WebMCP. Approval must traverse the explicit interface route carrying a one-time capability bound to the reviewed contract and browser session. A human or authorized browser agent may control that session; this demo does not claim biological-human presence. Arena then executes both owned routes and observes effects through a terminal settlement watermark.</p>
 
         <div className="flow-grid">
           <article className="flow-card"><span className="step">01</span><h3>Agent starts the audit</h3><p>The agent chooses only a server-owned preset. It cannot submit routes, evidence, or approval claims.</p><div className="button-row"><Button size="lg" disabled={busy} onClick={() => startAudit("vulnerable")}>Test vulnerable</Button><Button size="lg" variant="secondary" disabled={busy} onClick={() => startAudit("fixed")}>Test fixed</Button></div></article>

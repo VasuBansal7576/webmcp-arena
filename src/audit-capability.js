@@ -26,13 +26,20 @@ export async function createApprovalCapability(sessionHash) {
 
 export async function verifyApprovalCapability(record, { capability, sessionId }) {
   const expected = record?.privateApproval;
-  if (!expected || !CAPABILITY.test(capability || "") || !CAPABILITY.test(sessionId || "")) return false;
+  const proof = await approvalCapabilityProof({ capability, sessionId });
+  if (!expected || !proof) return false;
+  const { capabilityHash, sessionHash } = proof;
+  return safeDigestEqual(expected.capabilityHash, capabilityHash) &&
+    safeDigestEqual(expected.sessionHash, sessionHash);
+}
+
+export async function approvalCapabilityProof({ capability, sessionId }) {
+  if (!CAPABILITY.test(capability || "") || !CAPABILITY.test(sessionId || "")) return null;
   const [capabilityHash, sessionHash] = await Promise.all([
     hashCapability(capability),
     hashCapability(sessionId),
   ]);
-  return safeDigestEqual(expected.capabilityHash, capabilityHash) &&
-    safeDigestEqual(expected.sessionHash, sessionHash);
+  return Object.freeze({ capabilityHash, sessionHash });
 }
 
 export function auditSessionFromRequest(request) {

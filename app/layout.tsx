@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://webmcp-arena.zippy17.chatgpt.site"),
   title: "Arena — Prove WebMCP tools preserve human protections",
   description: "A live Human-vs-Agent Boundary Audit for WebMCP tools, delayed effects, approval boundaries, and signed evidence.",
   openGraph: {
@@ -15,6 +16,7 @@ export const metadata: Metadata = {
     description: "Behavioral verification for WebMCP tools.",
     images: ["/og.png"],
   },
+  alternates: { canonical: "/" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

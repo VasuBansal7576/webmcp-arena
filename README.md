@@ -12,6 +12,8 @@ Agent route ─┘
 
 Arena does not solve CAPTCHAs or declare an agent safe. It measures one scoped execution, waits for delayed effects to settle, and shows exactly where the two routes differ.
 
+**Live challenge app:** [webmcp-arena.zippy17.chatgpt.site](https://webmcp-arena.zippy17.chatgpt.site)
+
 ## Human-vs-Agent Checkout Proof
 
 The main demo uses an owned Checkout fixture with two server-controlled implementations:

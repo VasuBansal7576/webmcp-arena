@@ -3,6 +3,22 @@ import { createCheckoutAuditAdapter } from "./checkout-audit-adapter.js";
 import { CHECKOUT_CART_ID } from "./checkout-fixture.js";
 
 const VERSIONS = new Set(["vulnerable", "fixed"]);
+const APPROVAL_RECEIPT_FIELDS = Object.freeze([
+  "approvedAt",
+  "assuranceClaim",
+  "expiresAt",
+  "method",
+  "nonceId",
+  "reviewedArgumentsHash",
+  "reviewedContractHash",
+  "reviewedTargetHash",
+  "reviewedToolHash",
+  "reviewerClaim",
+  "sessionCommitment",
+  "status",
+]);
+export const HOSTED_APPROVAL_REVIEWER_CLAIM = "same_origin_interface_session_controller";
+export const HOSTED_APPROVAL_ASSURANCE_CLAIM = "session_capability_verified_human_presence_not_attested";
 const TARGETS = Object.freeze({
   vulnerable: Object.freeze({
     label: "Checkout · vulnerable delayed charge",
@@ -32,7 +48,7 @@ export async function createHostedAudit({ id, version, privateApproval, now = Da
       adapterId: measured.adapter.manifest.id,
       implementationVersion: version,
       targetPreset: TARGETS[version].label,
-      targetHash: await sha256Base64Url(TARGETS[version].url),
+      targetHash: measured.targetHash,
       toolName: measured.recipe.agent.toolName,
       toolHash: measured.prepared.approvalBinding.toolHash,
       arguments: structuredClone(measured.recipe.agent.arguments),
@@ -59,10 +75,10 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
   if (!record || !VERSIONS.has(record.version) || !record.review?.contractHash) {
     throw new Error("invalid hosted audit record");
   }
-  validateApprovalReceipt(record);
+  const approvalReceipt = validateApprovalReceipt(record);
 
   const measured = await prepareMeasuredCheckout(record.version);
-  assertReviewedPlan(record, measured.prepared);
+  assertReviewedPlan(record, measured);
   const outcome = await measured.auditor.run({
     planId: measured.prepared.planId,
     approval: {
@@ -75,6 +91,9 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
   const verification = await verifyAuditBundle(outcome.bundle);
   if (verification.valid !== true) {
     throw new Error(`measured boundary bundle failed verification: ${verification.reason || "unknown"}`);
+  }
+  if (outcome.bundle.targetHash !== measured.targetHash) {
+    throw new Error("the executed checkout target no longer matches the reviewed target");
   }
 
   const humanEvents = timeline(outcome.bundle.events, "human");
@@ -94,7 +113,7 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
     version: 1,
     auditId: record.id,
     generatedAt: iso(now),
-    approval: structuredClone(record.approval),
+    approval: structuredClone(approvalReceipt),
     boundaryBundle: structuredClone(outcome.bundle),
   };
   const payloadHash = await sha256Base64Url(canonicalJson(evidence));
@@ -105,7 +124,7 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
     findings,
     bundle: structuredClone(outcome.bundle),
     display: { humanEvents, agentEvents, settlement },
-    approval: structuredClone(record.approval),
+    approval: structuredClone(approvalReceipt),
     evidence,
     payloadHash,
     verification: { semanticValid: true, hashValid: true, attestedByCore: verification.attested === true },
@@ -138,13 +157,18 @@ async function prepareMeasuredCheckout(version) {
     routeRunner: adapter.routeRunner,
   });
   const recipe = await adapter.createRecipe({ target: TARGETS[version].url });
+  const targetHash = await sha256Base64Url(recipe.target);
   const prepared = await auditor.prepare(recipe);
-  return { adapter, auditor, recipe, prepared };
+  return { adapter, auditor, recipe, prepared, targetHash };
 }
 
-function assertReviewedPlan(record, prepared) {
+function assertReviewedPlan(record, measured) {
+  const { prepared, targetHash } = measured;
   const expected = record.review;
   const actual = prepared.approvalBinding;
+  if (expected.targetHash !== targetHash) {
+    throw new Error("the executable checkout target no longer matches the reviewed target");
+  }
   if (prepared.contractHash !== expected.contractHash ||
       actual.contractHash !== expected.contractHash ||
       actual.toolHash !== expected.toolHash ||
@@ -161,12 +185,56 @@ function assertReviewedPlan(record, prepared) {
 
 function validateApprovalReceipt(record) {
   const approval = record.approval;
-  if (!approval || approval.status !== "approved" ||
+  if (!isPlainObject(approval) || !hasExactKeys(approval, APPROVAL_RECEIPT_FIELDS) ||
+      approval.status !== "approved" ||
       approval.method !== "one_time_interface_session_capability" ||
       typeof approval.approvedAt !== "string" ||
-      typeof approval.nonceId !== "string") {
+      approval.expiresAt !== record.expiresAt ||
+      approval.nonceId !== record.privateApproval?.nonceId ||
+      approval.sessionCommitment !== record.privateApproval?.sessionHash ||
+      approval.reviewerClaim !== HOSTED_APPROVAL_REVIEWER_CLAIM ||
+      approval.assuranceClaim !== HOSTED_APPROVAL_ASSURANCE_CLAIM) {
     throw new Error("a bound interface-session approval receipt is required");
   }
+  const approvedAt = canonicalTimestamp(approval.approvedAt);
+  const expiresAt = canonicalTimestamp(approval.expiresAt);
+  if (approvedAt > expiresAt) {
+    throw new Error("approval receipt was issued after its review window expired");
+  }
+  return {
+    status: approval.status,
+    method: approval.method,
+    nonceId: approval.nonceId,
+    approvedAt: approval.approvedAt,
+    expiresAt: approval.expiresAt,
+    sessionCommitment: approval.sessionCommitment,
+    reviewerClaim: approval.reviewerClaim,
+    assuranceClaim: approval.assuranceClaim,
+    reviewedTargetHash: approval.reviewedTargetHash,
+    reviewedToolHash: approval.reviewedToolHash,
+    reviewedArgumentsHash: approval.reviewedArgumentsHash,
+    reviewedContractHash: approval.reviewedContractHash,
+  };
+}
+
+function canonicalTimestamp(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) {
+    throw new Error("approval receipt contains an invalid timestamp");
+  }
+  return timestamp;
+}
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasExactKeys(value, keys) {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
 }
 
 function timeline(events, route) {
