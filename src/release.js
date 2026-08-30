@@ -93,12 +93,12 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     check("arena_script", pkg.scripts?.arena === "node scripts/arena-server.js" && await exists(root, "scripts/arena-server.js"), "Arena server script must be wired"),
     check("webmcp_registration", arenaPage.includes("document.modelContext") && arenaPage.includes("registerTool"), "Arena web UI must register real document.modelContext tools"),
     check("action_uses_arena", action.includes("Arena WebMCP Preflight") && action.includes("bin/arena.js") && action.includes("preflight") && !action.includes("bin/agent-contract.js"), "composite action must run the Arena WebMCP preflight CLI"),
-    check("action_runtime_safe", action.includes("actions/setup-node@v4") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
+    check("action_runtime_safe", action.includes("actions/setup-node@v7") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22 on a current action runtime, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
     check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.2.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the versioned Arena action and retain reports when inspection fails"),
     check(
       "ci_workflow",
-      ciWorkflow.includes("actions/checkout@v4")
-        && ciWorkflow.includes("actions/setup-node@v4")
+      ciWorkflow.includes("actions/checkout@v7")
+        && ciWorkflow.includes("actions/setup-node@v7")
         && (ciWorkflow.includes("node-version: 22") || ciWorkflow.includes('node-version: "22"'))
         && ciWorkflow.includes("run: npm ci")
         && ciWorkflow.includes("run: npm test")

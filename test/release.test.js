@@ -152,7 +152,7 @@ async function createReleaseFixture() {
   await write(root, "README.md", "# Arena\n\nHuman-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>` or `arena test --target`. Static preflight does not prove runtime behavior.\n\n## Current limitations\n");
   await write(root, "CONTRIBUTING.md", "# Contributing\n\nRequire the exact contract hash. Run `npm test` and `npm run release:check`.\n");
   await write(root, "LICENSE", "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n");
-  await write(root, "action.yml", 'Arena WebMCP Preflight bin/arena.js preflight actions/setup-node@v4 node-version: "22" npm ci --ignore-scripts --omit=dev set -euo pipefail ARENA_INPUT_URL\n');
+  await write(root, "action.yml", 'Arena WebMCP Preflight bin/arena.js preflight actions/setup-node@v7 node-version: "22" npm ci --ignore-scripts --omit=dev set -euo pipefail ARENA_INPUT_URL\n');
   await write(root, "bin/arena.js", "#!/usr/bin/env node\n");
   await write(root, "scripts/arena-server.js", "export {};\n");
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
@@ -160,8 +160,8 @@ async function createReleaseFixture() {
   await write(root, "examples/github-action.yml", "name: Arena\nuses: VasuBansal7576/webmcp-arena@v0.2.0\nif: always()\n");
   await write(root, ".github/workflows/ci.yml", [
     "name: CI",
-    "uses: actions/checkout@v4",
-    "uses: actions/setup-node@v4",
+    "uses: actions/checkout@v7",
+    "uses: actions/setup-node@v7",
     "node-version: 22",
     "run: npm ci",
     "run: npm test",
