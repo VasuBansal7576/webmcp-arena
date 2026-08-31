@@ -1,6 +1,6 @@
 {
   "name": "webmcp-arena",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Arena: behavioral verification, delegated authority, and verifiable proof for WebMCP tools.",
   "type": "module",
   "repository": {

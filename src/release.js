@@ -86,7 +86,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
   const unwiredD1ArtifactsPresent = await containsFiles(root, "drizzle");
   const packageFilesExact = JSON.stringify([...(pkg.files || [])].sort()) === JSON.stringify([...requiredPackageFiles].sort());
   const checks = [
-    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.3.0", "package must use the WebMCP Arena release identity"),
+    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.3.1", "package must use the WebMCP Arena release identity"),
     check("package_publishable", pkg.private !== true && pkg.license && pkg.license !== "UNLICENSED", "package must be publishable and licensed"),
     check("package_metadata", pkg.repository?.url === "git+https://github.com/VasuBansal7576/webmcp-arena.git" && pkg.homepage === "https://github.com/VasuBansal7576/webmcp-arena#readme" && pkg.bugs?.url === "https://github.com/VasuBansal7576/webmcp-arena/issues", "package must point to the public WebMCP Arena repository, homepage, and issue tracker"),
     check("arena_cli", pkg.bin?.arena === "./bin/arena.js" && await exists(root, "bin/arena.js"), "package bin must expose the Arena CLI"),
@@ -139,7 +139,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
         && nextConfig.includes('camera=(), geolocation=(), microphone=(), payment=()'),
       "the deployed Vinext root and descendant response paths must deny framing and emit the reviewed browser security headers",
     ),
-    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: actions/checkout@v7") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.3.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the current checkout action, versioned Arena action, and retain reports when inspection fails"),
+    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: actions/checkout@v7") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.3.1") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the current checkout action, versioned Arena action, and retain reports when inspection fails"),
     check(
       "ci_workflow",
       ciWorkflow.includes("actions/checkout@v7")

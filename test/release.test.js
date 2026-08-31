@@ -151,7 +151,7 @@ async function createReleaseFixture() {
   const root = await mkdtemp(join(tmpdir(), "arena-release-"));
   const pkg = {
     name: "webmcp-arena",
-    version: "0.3.0",
+    version: "0.3.1",
     license: "MIT",
     repository: { type: "git", url: "git+https://github.com/VasuBansal7576/webmcp-arena.git" },
     homepage: "https://github.com/VasuBansal7576/webmcp-arena#readme",
@@ -206,7 +206,7 @@ async function createReleaseFixture() {
   await write(root, "scripts/arena-server.js", "export {};\n");
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
   await write(root, "scripts/release-check.js", "export {};\n");
-  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.3.0\nif: always()\n");
+  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.3.1\nif: always()\n");
   await write(root, ".github/workflows/ci.yml", [
     "name: CI",
     "uses: actions/checkout@v7",
