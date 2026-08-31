@@ -1,6 +1,6 @@
 export type CheckoutMode = "vulnerable" | "fixed";
 export type CheckoutRoute = "human" | "agent";
-export type AgentInvocationChannel = "native_webmcp" | "manual_simulation";
+export type AgentInvocationChannel = "webmcp_tool_call" | "manual_simulation";
 
 export type ResolvedCheckoutMode = Readonly<{
   kind: "resolved";
@@ -285,9 +285,9 @@ function createAgentTrace({
       invocationChannel,
       afterMs: 0,
       title: `${invocationLabel} invoked`,
-      detail: invocationChannel === "native_webmcp"
-        ? "Native WebMCP called preview_checkout for the owned demo cart."
-        : "The manual simulator called preview_checkout without claiming a native browser invocation.",
+      detail: invocationChannel === "webmcp_tool_call"
+        ? "A registered WebMCP tool call invoked preview_checkout for the owned demo cart."
+        : "The manual simulator called preview_checkout without claiming browser provenance.",
     },
     {
       kind: "preview_returned",
@@ -342,8 +342,8 @@ function createAgentTrace({
 
 function agentInvocationLabel(channel: AgentInvocationChannel): string {
   switch (channel) {
-    case "native_webmcp":
-      return "Native WebMCP";
+    case "webmcp_tool_call":
+      return "WebMCP tool call";
     case "manual_simulation":
       return "Manual simulator";
     default: {

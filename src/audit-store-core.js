@@ -11,10 +11,7 @@ export function createAuditStore(getDb) {
     const createdAt = Date.parse(String(record.createdAt));
     const updatedAt = Date.parse(String(record.updatedAt));
     const approvalExpiresAt = Date.parse(String(record.approvalExpiresAt));
-    const retentionUntil = Date.parse(String(record.retentionUntil));
-    if (!Number.isFinite(approvalExpiresAt) || !Number.isFinite(retentionUntil) || retentionUntil <= approvalExpiresAt) {
-      throw new TypeError("audit retention must outlive its approval window");
-    }
+    const retentionUntil = validatedRetentionUntil(record);
     await db.prepare("INSERT INTO audits (id, idempotency_key, version, state, created_at, updated_at, expires_at, retention_until, lease_id, lease_expires_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)")
       .bind(record.id, idempotencyKey, record.version, record.state, createdAt, updatedAt, approvalExpiresAt, retentionUntil, JSON.stringify(record)).run();
   }
@@ -174,9 +171,11 @@ export function createAuditStore(getDb) {
   async function saveAudit(record, { expectedState, leaseId, releaseLease = false }) {
     const db = await getDb();
     const updatedAt = Date.parse(String(record.updatedAt));
+    const retentionUntil = validatedRetentionUntil(record);
+    if (!Number.isFinite(updatedAt)) throw new TypeError("audit update timestamp must be valid");
     const leaseExpiresAt = releaseLease ? null : Date.now() + EXECUTION_LEASE_MS;
-    const result = await db.prepare("UPDATE audits SET state = ?, updated_at = ?, lease_id = ?, lease_expires_at = ?, payload = ? WHERE id = ? AND state = ? AND lease_id = ?")
-      .bind(record.state, updatedAt, releaseLease ? null : leaseId, leaseExpiresAt, JSON.stringify(record), record.id, expectedState, leaseId).run();
+    const result = await db.prepare("UPDATE audits SET state = ?, updated_at = ?, retention_until = ?, lease_id = ?, lease_expires_at = ?, payload = ? WHERE id = ? AND state = ? AND lease_id = ?")
+      .bind(record.state, updatedAt, retentionUntil, releaseLease ? null : leaseId, leaseExpiresAt, JSON.stringify(record), record.id, expectedState, leaseId).run();
     if (!changed(result)) throw new Error("audit execution lease was lost");
   }
 
@@ -283,6 +282,21 @@ async function markFailedIfCurrent(db, row, now, reason) {
 
 function parseRecord(payload) {
   return JSON.parse(String(payload));
+}
+
+function validatedRetentionUntil(record) {
+  const approvalValue = record?.approvalExpiresAt;
+  const retentionValue = record?.retentionUntil;
+  const approvalExpiresAt = Date.parse(String(approvalValue));
+  const retentionUntil = Date.parse(String(retentionValue));
+  if (!Number.isFinite(approvalExpiresAt) || !Number.isFinite(retentionUntil) || retentionUntil <= approvalExpiresAt) {
+    throw new TypeError("audit retention must outlive its approval window");
+  }
+  if (new Date(approvalExpiresAt).toISOString() !== approvalValue ||
+      new Date(retentionUntil).toISOString() !== retentionValue) {
+    throw new TypeError("audit retention requires canonical approval and cleanup timestamps");
+  }
+  return retentionUntil;
 }
 
 function claimResult(status, record = null, leaseId = null) {

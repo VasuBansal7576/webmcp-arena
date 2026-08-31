@@ -55,8 +55,9 @@ export async function POST(request: Request) {
     await saveAudit(record, { expectedState: "running", leaseId });
     persistedState = "waiting_for_effects";
 
-    const result = await completeHostedAudit(record);
-    const attestation = await signEvidence(result.evidence, result.payloadHash);
+    const evidenceGeneratedAt = new Date();
+    const result = await completeHostedAudit(record, { now: evidenceGeneratedAt.getTime() });
+    const attestation = await signEvidence(result.evidence, result.payloadHash, evidenceGeneratedAt);
     record.state = "completed";
     record.result = { ...result, attestation };
     record.updatedAt = new Date().toISOString();

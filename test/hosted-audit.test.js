@@ -6,10 +6,15 @@ import {
   canonicalJson,
   completeHostedAudit,
   createHostedAudit,
+  HOSTED_AUDIT_RETENTION_MS,
   publicHostedAudit,
   verifyHostedAuditEvidence,
   verifyHostedAuditRecord,
 } from "../src/hosted-audit.js";
+import {
+  signEvidenceWithEnvironment,
+  verifyEvidenceAttestation,
+} from "../lib/evidence-signing.ts";
 import { hashGeneratedRelease } from "../src/generated-release-audit.js";
 
 const vulnerableId = "11111111-1111-4111-8111-111111111111";
@@ -97,6 +102,50 @@ test("hosted vulnerable audit executes the owned route and observes its delayed 
   alteredEvidence.authorizationChecks[0].status = "executed";
   assert.notEqual(hash(alteredEvidence), result.payloadHash);
   assert.deepEqual(await verifyHostedAuditEvidence(result.evidence), { valid: true });
+});
+
+test("completed evidence receives a full retention window from its generation time", async () => {
+  const completionAt = now + 9 * 60_000;
+  const record = approve(await createHostedAudit({
+    id: vulnerableId,
+    version: "vulnerable",
+    privateApproval,
+    now,
+  }));
+  const preparedRetention = record.retentionUntil;
+
+  const result = await completeHostedAudit(record, { now: completionAt });
+
+  assert.equal(result.evidence.generatedAt, new Date(completionAt).toISOString());
+  assert.equal(
+    Date.parse(result.evidence.retentionUntil) - Date.parse(result.evidence.generatedAt),
+    HOSTED_AUDIT_RETENTION_MS,
+  );
+  assert.equal(record.retentionUntil, result.evidence.retentionUntil);
+  assert.notEqual(record.retentionUntil, preparedRetention);
+
+  const attestation = await signEvidenceWithEnvironment(
+    result.evidence,
+    result.payloadHash,
+    { ARENA_ALLOW_EPHEMERAL_SIGNING: "true" },
+    new Date(completionAt),
+  );
+  assert.equal(
+    Date.parse(result.evidence.retentionUntil) - Date.parse(attestation.issuedAt),
+    HOSTED_AUDIT_RETENTION_MS,
+  );
+  assert.equal(
+    await verifyEvidenceAttestation(result.evidence, attestation, attestation.publicKey),
+    true,
+  );
+
+  const shortened = structuredClone(result.evidence);
+  shortened.retentionUntil = new Date(completionAt + HOSTED_AUDIT_RETENTION_MS - 1).toISOString();
+  assert.deepEqual(await verifyHostedAuditEvidence(shortened), {
+    valid: false,
+    reason: "approval_chronology_mismatch",
+  });
+  assert.equal(await verifyEvidenceAttestation(shortened, attestation, attestation.publicKey), false);
 });
 
 test("hosted fixed audit executes matching routes and preserves both audit layers", async () => {

@@ -12,12 +12,12 @@ export const CHECKOUT_RELEASE_EXECUTION_FILES = Object.freeze([
 export const CHECKOUT_RELEASE_ARTIFACTS = Object.freeze({
   vulnerable: Object.freeze({
     algorithm: "sha256",
-    digest: "QKQh1-SYYSh4amawRxqrKfsVpDMcuuy-eR0qEQ8wwPg",
+    digest: "SkVtDL00vaL5sgW7VIEJ4qHC_zmbrikbItom2nRLeIQ",
     subject: "arena.checkout.owned-execution-stack:vulnerable",
   }),
   fixed: Object.freeze({
     algorithm: "sha256",
-    digest: "gVQpf1-gKnFFVzSI-pqR6GlSwd8f6B8ihOApQfHuUko",
+    digest: "q3dxrDFxZgScxaRPR3MkIDho3Jw03QIcc94o0WC1smw",
     subject: "arena.checkout.owned-execution-stack:fixed",
   }),
 });

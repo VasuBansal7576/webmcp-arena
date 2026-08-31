@@ -30,11 +30,13 @@ test("the well-known rewrite exposes the same process-local development key used
     const payloadHash = createHash("sha256")
       .update('{"kind":"arena.route_test","version":1}')
       .digest("base64url");
-    const attestation = await signEvidence(evidence, payloadHash);
+    const completionAt = new Date("2026-08-30T12:00:00.000Z");
+    const attestation = await signEvidence(evidence, payloadHash, completionAt);
     const discovery = await getEvidenceSigningPublicKey();
     const keySet = await getEvidenceSigningKeySet();
 
     assert.equal(discovery.keySource, "ephemeral_development");
+    assert.equal(attestation.issuedAt, completionAt.toISOString());
     assert.equal(discovery.keyId, attestation.keyId);
     assert.equal(keySet.kind, "arena.signing_key_set");
     assert.equal(keySet.version, 1);

@@ -146,6 +146,83 @@ test("an atomically claimed hosted audit can execute the isolated checkout fixtu
   assert.equal(result.approval.nonceId, privateApproval.nonceId);
 });
 
+test("saving completed evidence atomically synchronizes its full retention deadline", async (t) => {
+  const { store, db } = testStore(t);
+  const privateApproval = {
+    capabilityHash: HASHES.capabilityHash,
+    sessionHash: HASHES.sessionHash,
+    nonceId: "hosted_nonce_0011",
+  };
+  const record = await createHostedAudit({ id: auditId(11), version: "fixed", privateApproval, now: NOW });
+  await store.insertAudit(record, "hosted-retention");
+  const claim = await store.claimApproval({
+    id: record.id,
+    now: NOW + 1,
+    proof: { capabilityHash: privateApproval.capabilityHash, sessionHash: privateApproval.sessionHash },
+  });
+  assert.equal(claim.status, "claimed");
+
+  const completionAt = NOW + 2_000;
+  const result = await completeHostedAudit(claim.record, { now: completionAt });
+  claim.record.state = "completed";
+  claim.record.updatedAt = new Date(completionAt).toISOString();
+  claim.record.result = result;
+  await store.saveAudit(claim.record, {
+    expectedState: "running",
+    leaseId: claim.leaseId,
+    releaseLease: true,
+  });
+
+  const stored = await store.loadAudit(record.id);
+  const row = await db.prepare("SELECT retention_until FROM audits WHERE id = ?").bind(record.id).first();
+  assert.equal(Date.parse(stored.retentionUntil) - Date.parse(result.evidence.generatedAt), 2_592_000_000);
+  assert.equal(stored.retentionUntil, result.evidence.retentionUntil);
+  assert.equal(row.retention_until, Date.parse(stored.retentionUntil));
+});
+
+test("saving retention metadata rejects non-canonical deadlines and lost leases without partial writes", async (t) => {
+  const { store, db } = testStore(t);
+  const record = auditRecord({ id: auditId(12), state: "running" });
+  await store.insertAudit(record, "retention-guards");
+  await setLease(db, record.id, "running", "retention-lease", NOW + 30_000);
+  const original = await db.prepare("SELECT state, retention_until, payload FROM audits WHERE id = ?")
+    .bind(record.id).first();
+
+  const malformed = structuredClone(record);
+  malformed.state = "completed";
+  malformed.updatedAt = new Date(NOW + 1).toISOString();
+  malformed.retentionUntil = "2026-09-29";
+  await assert.rejects(
+    () => store.saveAudit(malformed, {
+      expectedState: "running",
+      leaseId: "retention-lease",
+      releaseLease: true,
+    }),
+    /audit retention/,
+  );
+  assert.deepEqual(
+    await db.prepare("SELECT state, retention_until, payload FROM audits WHERE id = ?").bind(record.id).first(),
+    original,
+  );
+
+  const lostLease = structuredClone(record);
+  lostLease.state = "completed";
+  lostLease.updatedAt = new Date(NOW + 2).toISOString();
+  lostLease.retentionUntil = new Date(NOW + 2_592_000_000 + 2).toISOString();
+  await assert.rejects(
+    () => store.saveAudit(lostLease, {
+      expectedState: "running",
+      leaseId: "wrong-retention-lease",
+      releaseLease: true,
+    }),
+    /audit execution lease was lost/,
+  );
+  assert.deepEqual(
+    await db.prepare("SELECT state, retention_until, payload FROM audits WHERE id = ?").bind(record.id).first(),
+    original,
+  );
+});
+
 test("expired awaiting approvals cannot be rotated", async (t) => {
   const { store } = testStore(t);
   const record = auditRecord({ id: auditId(9), approvalExpiresAt: NOW });

@@ -53,12 +53,12 @@ npm run start:site -- --port 4174
 
 Open `http://127.0.0.1:4174`. The local hosted command explicitly enables one process-local signing identity for development, including public-key discovery and proof verification; it resets when the process restarts. Production fails closed and uses a configured Ed25519 key pair.
 
-The hosted challenge application registers exactly two tools through the real Promise-returning `document.modelContext.registerTool(...)` API:
+The hosted challenge application registers exactly two tools through the Promise-returning `document.modelContext.registerTool(...)` API:
 
 - `start_generated_release_audit`
 - `get_generated_release_audit_status`
 
-The start tool prepares a server-owned, standards-shaped generated WebMCP manifest for visible exact-intent review. Arena binds the release, transitive owned-execution-stack artifact digest, claimed agent, tool definition, arguments, target, contract, browser session, nonce, and expiry before it executes the owned human and agent route adapter. The status tool is read-only. Neither tool can approve or execute a consequential route. `/checkout` separately registers a real `preview_checkout` tool on `document.modelContext`; that page is an unsigned interactive standards demo and is never substituted for the server-attested evidence.
+The start tool prepares a server-owned, standards-shaped generated WebMCP manifest for visible exact-intent review. Arena binds the release, transitive owned-execution-stack artifact digest, claimed agent, tool definition, arguments, target, contract, browser session, nonce, and expiry before it executes the owned human and agent route adapter. The status tool is read-only. Neither tool can approve or execute a consequential route. `/checkout` separately registers `preview_checkout` on `document.modelContext` and labels its page-observed channel only as a registered WebMCP tool call. That page is an unsigned interactive standards demo and is never substituted for the server-attested evidence.
 
 Completed hosted evidence is checked twice: a pure semantic verifier recomputes its release, target, account, agent, tool, argument, contract, coverage, and authorization-probe bindings, then Ed25519 verification resolves the signed key ID against the deployment trust set published at `/.well-known/arena-signing-keys.json`. The embedded public key is never treated as its own trust root. The singular `/.well-known/arena-signing-key.json` endpoint remains available for current-key compatibility, but portable proofs use the versioned trust set.
 

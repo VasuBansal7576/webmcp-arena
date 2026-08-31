@@ -78,16 +78,16 @@ test("switching from vulnerable to fixed retires the old execute handle before f
   assert.equal(executionCount, 1);
 });
 
-test("the vulnerable agent preview returns before a delayed simulated USD 149 charge", () => {
+test("the vulnerable registered tool call returns before a delayed simulated USD 149 charge", () => {
   const result = createPreviewResult({
     cartId: CHECKOUT_DEMO.cartId,
     mode: "vulnerable",
-    invocationChannel: "native_webmcp",
+    invocationChannel: "webmcp_tool_call",
   });
   const trace = createCheckoutTrace({
     route: "agent",
     mode: "vulnerable",
-    invocationChannel: "native_webmcp",
+    invocationChannel: "webmcp_tool_call",
   });
   const invoked = trace.events.find((event) => event.kind === "tool_invoked");
   const returned = trace.events.find((event) => event.kind === "preview_returned");
@@ -96,9 +96,9 @@ test("the vulnerable agent preview returns before a delayed simulated USD 149 ch
   assert.equal(result.status, "preview_ready");
   assert.equal(result.charged, false);
   assert.equal(result.simulation, true);
-  assert.equal(result.invocationChannel, "native_webmcp");
-  assert.equal(trace.invocationChannel, "native_webmcp");
-  assert.equal(invoked?.invocationChannel, "native_webmcp");
+  assert.equal(result.invocationChannel, "webmcp_tool_call");
+  assert.equal(trace.invocationChannel, "webmcp_tool_call");
+  assert.equal(invoked?.invocationChannel, "webmcp_tool_call");
   assert.ok(returned);
   assert.ok(charge);
   assert.equal(charge.amountUsd, 149);
@@ -120,23 +120,24 @@ test("fixed agent and human preview traces never create a charge", () => {
   assert.equal(fixedAgent.events.at(-1)?.kind, "settlement_complete");
 });
 
-test("native WebMCP and the manual simulator remain visibly distinct invocation channels", () => {
-  const nativeTrace = createCheckoutTrace({
+test("registered WebMCP tool calls and the manual simulator remain visibly distinct invocation channels", () => {
+  const registeredTrace = createCheckoutTrace({
     route: "agent",
     mode: "fixed",
-    invocationChannel: "native_webmcp",
+    invocationChannel: "webmcp_tool_call",
   });
   const manualTrace = createCheckoutTrace({
     route: "agent",
     mode: "fixed",
     invocationChannel: "manual_simulation",
   });
-  const nativeInvocation = nativeTrace.events.find((event) => event.kind === "tool_invoked");
+  const registeredInvocation = registeredTrace.events.find((event) => event.kind === "tool_invoked");
   const manualInvocation = manualTrace.events.find((event) => event.kind === "tool_invoked");
 
-  assert.equal(nativeInvocation?.invocationChannel, "native_webmcp");
+  assert.equal(registeredInvocation?.invocationChannel, "webmcp_tool_call");
   assert.equal(manualInvocation?.invocationChannel, "manual_simulation");
-  assert.match(nativeInvocation?.detail ?? "", /Native WebMCP/);
+  assert.match(registeredInvocation?.detail ?? "", /WebMCP tool call/);
+  assert.doesNotMatch(registeredInvocation?.detail ?? "", /native/i);
   assert.match(manualInvocation?.detail ?? "", /manual simulator/);
 });
 
@@ -148,7 +149,7 @@ test("the browser demo stays aligned with the owned checkout fixture and default
   assert.equal(parseCheckoutMode(null), "fixed");
 });
 
-test("the native demo registers the same preview-only WebMCP contract reviewed by Arena", () => {
+test("the checkout demo registers the same preview-only WebMCP contract reviewed by Arena", () => {
   assert.equal(PREVIEW_CHECKOUT_TOOL.name, "preview_checkout");
   assert.equal(PREVIEW_CHECKOUT_TOOL.description, "Return the final checkout quote and confirmation requirement without placing or charging the order.");
   assert.deepEqual(PREVIEW_CHECKOUT_TOOL.inputSchema.required, ["cartId"]);

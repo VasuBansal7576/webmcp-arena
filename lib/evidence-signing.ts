@@ -60,13 +60,13 @@ export type EvidenceSigningKeySet = Readonly<{
 
 let ephemeralDevelopmentMaterial: Promise<SigningMaterial> | null = null;
 
-export async function signEvidence(bundle: unknown, payloadHash: string) {
+export async function signEvidence(bundle: unknown, payloadHash: string, issuedAt: Date) {
   return signEvidenceWithEnvironment(bundle, payloadHash, {
     ARENA_SIGNING_PRIVATE_JWK: process.env.ARENA_SIGNING_PRIVATE_JWK,
     ARENA_SIGNING_PUBLIC_JWK: process.env.ARENA_SIGNING_PUBLIC_JWK,
     ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS: process.env.ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS,
     ARENA_ALLOW_EPHEMERAL_SIGNING: process.env.ARENA_ALLOW_EPHEMERAL_SIGNING,
-  });
+  }, issuedAt);
 }
 
 export async function getEvidenceSigningPublicKey() {

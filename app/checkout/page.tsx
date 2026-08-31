@@ -137,7 +137,7 @@ export default function CheckoutDemoPage() {
       execute: ({ input, mode }) => executeAgentPreview({
         input,
         mode,
-        invocationChannel: "native_webmcp",
+        invocationChannel: "webmcp_tool_call",
       }),
     }).then(
       (outcome) => {
@@ -265,7 +265,7 @@ export default function CheckoutDemoPage() {
 
       <section className={styles.hero}>
         <div>
-          <p className={styles.eyebrow}>Native WebMCP target · explicit simulation</p>
+          <p className={styles.eyebrow}>Registered WebMCP tool · explicit simulation</p>
           <h1>One tool claim.<br/><em>Two outcomes.</em></h1>
         </div>
         <p className={styles.lede}>Call the same <code>preview_checkout</code> contract in vulnerable and fixed modes. The visible timelines make the protection difference impossible to miss.</p>
@@ -408,7 +408,7 @@ function RoutePanel({
       </div>
       <p>{route === "human"
         ? "The buyer sees the quote and confirmation requirement."
-        : `Native agents call the registered tool. The button runs the ${mode} manual fallback.`}</p>
+        : `WebMCP clients can call the registered tool. The button runs the ${mode} manual fallback.`}</p>
       {route === "agent" ? (
         <div className={styles.channelLine}>
           <span>Invocation channel</span>
@@ -459,7 +459,7 @@ function webMcpLabel(state: WebMcpState): string {
     case "registering":
       return "registering";
     case "registered":
-      return "1 native tool";
+      return "1 registered tool";
     case "unavailable":
       return "browser unavailable";
     case "failed":

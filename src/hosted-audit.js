@@ -193,12 +193,15 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
     authorizationCheck("replay", replay, "authorization_replayed"),
   ];
   assertAuthorizationChecks(authorizationChecks);
+  const generatedAt = iso(now);
+  const retentionUntil = new Date(epoch(now) + HOSTED_AUDIT_RETENTION_MS).toISOString();
+  record.retentionUntil = retentionUntil;
   const evidence = {
     kind: "arena.hosted_boundary_evidence",
     version: 1,
     auditId: record.id,
-    generatedAt: iso(now),
-    retentionUntil: record.retentionUntil,
+    generatedAt,
+    retentionUntil,
     approval: structuredClone(approvalReceipt),
     exactIntent: structuredClone(record.review),
     authorization: structuredClone(outcome.authorization),
@@ -403,7 +406,7 @@ export async function verifyHostedAuditEvidence(evidence) {
     if (evidenceGeneratedAt !== boundaryGeneratedAt || approvedAt > boundaryGeneratedAt ||
         boundary.events.some((event) => canonicalTimestamp(event.observedAt) < approvedAt) ||
         boundaryGeneratedAt > approvalExpiresAt || retentionUntil <= approvalExpiresAt ||
-        retentionUntil <= evidenceGeneratedAt) {
+        retentionUntil - evidenceGeneratedAt < HOSTED_AUDIT_RETENTION_MS) {
       return invalidEvidence("approval_chronology_mismatch");
     }
     if (boundary.targetHash !== review.targetHash || boundary.principalHash !== review.principalHash ||
