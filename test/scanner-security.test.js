@@ -358,6 +358,7 @@ test("WebMCP preflight ignores prose, comments, and unrelated registerTool metho
 test("WebMCP preflight ignores JavaScript strings, JSON scripts, and commented markup", () => {
   const result = analyzeHtml(`<!doctype html><html><body>
     <!-- <form toolname="commented_form"></form> -->
+    <!-- <script>document.modelContext.registerTool({ name: "commented_script" })</script> -->
     <script type="application/json">{"example":"document.modelContext.registerTool({name:'json_string'})"}</script>
     <script>
       const example = "document.modelContext.registerTool({ name: 'double_string' })";
@@ -529,6 +530,8 @@ test("WebMCP preflight resolves bundles against the document base URL", async (t
     requested.push(pathname);
     if (pathname === "/") {
       return send(response, 200, readablePage(`
+        <!-- <base href="/wrong/"><script src="phantom.js"></script> -->
+        <template><script src="template.js"></script></template>
         <base href="/assets/">
         <script type="module" src="bundle.js"></script>
       `), "text/html");
@@ -547,6 +550,8 @@ test("WebMCP preflight resolves bundles against the document base URL", async (t
   assert.equal(result.page.webmcp_candidates[0].tool_name, "base_aware_tool");
   assert.equal(result.page.webmcp_candidates[0].source_url, `${origin}/assets/bundle.js`);
   assert.equal(requested.includes("/bundle.js"), false);
+  assert.equal(requested.includes("/wrong/phantom.js"), false);
+  assert.equal(requested.includes("/assets/template.js"), false);
 });
 
 test("WebMCP preflight never requests cross-origin scripts or cross-origin redirect targets", async (t) => {

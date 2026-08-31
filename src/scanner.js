@@ -293,7 +293,8 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
 
 function detectWebMcpCandidates(html) {
   const sourceHtml = String(html);
-  const scripts = [...sourceHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+  const activeHtml = activeHtmlMarkup(sourceHtml, { includeScripts: true });
+  const scripts = [...activeHtml.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
     .filter((match) => isJavaScriptType(match[1]))
     .map((match) => tokenizeJavaScript(match[2].replace(/<!--[\s\S]*?-->/g, "")));
   const candidates = [];
@@ -303,11 +304,7 @@ function detectWebMcpCandidates(html) {
   for (const tokens of scripts) {
     candidates.push(...imperativeCandidates(tokens, "navigator", "legacy"));
   }
-  const declarativeHtml = sourceHtml
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
-    .replace(/<(textarea|template|noscript|xmp)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const declarativeHtml = activeHtmlMarkup(sourceHtml);
   const tags = [...declarativeHtml.matchAll(/<[a-z][^>]*>/gi)].map((match) => match[0]);
   for (const tag of tags) {
     const value = htmlAttributeValue(tag, "toolname");
@@ -419,7 +416,7 @@ function applyExternalWebMcpInspection(page, inspection) {
 }
 
 function externalJavaScriptSources(html, pageUrl) {
-  const sourceHtml = String(html);
+  const sourceHtml = activeHtmlMarkup(html, { includeScripts: true });
   const documentBaseUrl = effectiveDocumentBaseUrl(sourceHtml, pageUrl);
   const scriptSources = [...sourceHtml.matchAll(/<script\b([^>]*)>[\s\S]*?<\/script>/gi)]
     .filter((match) => isJavaScriptType(match[1]))
@@ -444,7 +441,7 @@ function externalJavaScriptSources(html, pageUrl) {
 }
 
 function effectiveDocumentBaseUrl(html, pageUrl) {
-  const baseTag = String(html).match(/<base\b([^>]*)>/i);
+  const baseTag = activeHtmlMarkup(html).match(/<base\b([^>]*)>/i);
   const rawHref = baseTag ? htmlAttributeValue(baseTag[1], "href") : null;
   if (!rawHref) return pageUrl;
   try {
@@ -453,6 +450,14 @@ function effectiveDocumentBaseUrl(html, pageUrl) {
   } catch {
     return pageUrl;
   }
+}
+
+function activeHtmlMarkup(html, { includeScripts = false } = {}) {
+  let source = String(html)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<(style|textarea|template|noscript|xmp)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+  if (!includeScripts) source = source.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+  return source;
 }
 
 function detectImperativeCandidates(source) {
