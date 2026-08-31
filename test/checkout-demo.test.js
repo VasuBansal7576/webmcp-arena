@@ -156,8 +156,6 @@ test("the checkout demo registers the same preview-only WebMCP contract reviewed
   assert.equal(PREVIEW_CHECKOUT_TOOL.inputSchema.additionalProperties, false);
   assert.deepEqual(PREVIEW_CHECKOUT_TOOL.annotations, {
     readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
+    untrustedContentHint: false,
   });
 });

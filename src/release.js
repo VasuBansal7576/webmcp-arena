@@ -44,12 +44,13 @@ const RETIRED_SOURCES = [
 
 export async function runReleaseCheck({ root = process.cwd() } = {}) {
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const [action, readme, contributing, license, arenaPage, ciWorkflow, d1Runtime, nextConfig] = await Promise.all([
+  const [action, readme, contributing, license, arenaPage, hostedPage, ciWorkflow, d1Runtime, nextConfig] = await Promise.all([
     text(root, "action.yml"),
     text(root, "README.md"),
     text(root, "CONTRIBUTING.md"),
     text(root, "LICENSE"),
     text(root, "src/arena-page.js"),
+    text(root, "app/page.tsx"),
     text(root, ".github/workflows/ci.yml"),
     text(root, "db/runtime.ts"),
     text(root, "next.config.ts"),
@@ -85,7 +86,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
   const unwiredD1ArtifactsPresent = await containsFiles(root, "drizzle");
   const packageFilesExact = JSON.stringify([...(pkg.files || [])].sort()) === JSON.stringify([...requiredPackageFiles].sort());
   const checks = [
-    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.2.0", "package must use the WebMCP Arena release identity"),
+    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.3.0", "package must use the WebMCP Arena release identity"),
     check("package_publishable", pkg.private !== true && pkg.license && pkg.license !== "UNLICENSED", "package must be publishable and licensed"),
     check("package_metadata", pkg.repository?.url === "git+https://github.com/VasuBansal7576/webmcp-arena.git" && pkg.homepage === "https://github.com/VasuBansal7576/webmcp-arena#readme" && pkg.bugs?.url === "https://github.com/VasuBansal7576/webmcp-arena/issues", "package must point to the public WebMCP Arena repository, homepage, and issue tracker"),
     check("arena_cli", pkg.bin?.arena === "./bin/arena.js" && await exists(root, "bin/arena.js"), "package bin must expose the Arena CLI"),
@@ -96,7 +97,13 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     check("start_script", pkg.scripts?.start === "node scripts/arena-server.js", "package start script must launch the Arena server"),
     check("release_script", pkg.scripts?.["release:check"] === "node scripts/release-check.js", "release check script must be wired"),
     check("arena_script", pkg.scripts?.arena === "node scripts/arena-server.js" && await exists(root, "scripts/arena-server.js"), "Arena server script must be wired"),
-    check("webmcp_registration", arenaPage.includes("document.modelContext") && arenaPage.includes("registerTool"), "Arena web UI must register real document.modelContext tools"),
+    check(
+      "webmcp_registration_source",
+      arenaPage.includes("document.modelContext")
+        && arenaPage.includes("registerTool")
+        && hostedPage.includes("document.modelContext.registerTool"),
+      "the local and hosted Arena source must contain document.modelContext registrations; native-browser verification remains an explicit opt-in check",
+    ),
     check("action_uses_arena", action.includes("Arena WebMCP Preflight") && action.includes("bin/arena.js") && action.includes("preflight") && !action.includes("bin/agent-contract.js"), "composite action must run the Arena WebMCP preflight CLI"),
     check("action_runtime_safe", action.includes("actions/setup-node@v7") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22 on a current action runtime, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
     check(
@@ -121,7 +128,18 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
         && readme.includes("at least 30 days"),
       "the hosted release must publish the versioned trust set and document its bounded two-phase key-rotation policy",
     ),
-    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.2.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the versioned Arena action and retain reports when inspection fails"),
+    check(
+      "hosted_security_headers",
+      nextConfig.includes('source: "/"')
+        && nextConfig.includes('source: "/:path*"')
+        && nextConfig.includes("frame-ancestors 'none'")
+        && nextConfig.includes('{ key: "X-Frame-Options", value: "DENY" }')
+        && nextConfig.includes('{ key: "X-Content-Type-Options", value: "nosniff" }')
+        && nextConfig.includes('{ key: "Referrer-Policy", value: "no-referrer" }')
+        && nextConfig.includes('camera=(), geolocation=(), microphone=(), payment=()'),
+      "the deployed Vinext root and descendant response paths must deny framing and emit the reviewed browser security headers",
+    ),
+    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: actions/checkout@v7") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.3.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the current checkout action, versioned Arena action, and retain reports when inspection fails"),
     check(
       "ci_workflow",
       ciWorkflow.includes("actions/checkout@v7")
@@ -129,6 +147,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
         && (ciWorkflow.includes("node-version: 22") || ciWorkflow.includes('node-version: "22"'))
         && ciWorkflow.includes("run: npm ci")
         && ciWorkflow.includes("run: npm test")
+        && ciWorkflow.includes("run: npm run lint")
         && ciWorkflow.includes("run: npm run release:check")
         && ciWorkflow.includes("run: npx tsc --noEmit --incremental false")
         && ciWorkflow.includes("run: npm run build:site")
@@ -138,6 +157,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
       "CI must run the browser-free tests, release contract, type-check, production build, package dry run, and whitespace gate on Node 22",
     ),
     check("release_documents", readme.includes("# Arena") && readme.includes("Human-vs-Agent Boundary Audit") && readme.includes("## Current limitations") && readme.includes("arena preflight") && readme.includes("arena test --target") && readme.includes("Human-vs-Agent Checkout Proof") && readme.includes("owned Checkout fixture") && readme.includes("Static preflight") && readme.includes("document.modelContext.registerTool") && !readme.includes("This command is not implemented") && !readme.includes("Legacy Agent Contract") && contributing.includes("exact contract hash") && contributing.includes("npm test") && contributing.includes("npm run release:check") && license.includes("MIT License") && license.includes("Permission is hereby granted"), "README, CONTRIBUTING, and LICENSE must describe the focused Arena release without overstating static evidence"),
+    check("hackathon_work_disclosure", readme.includes("## Hackathon work disclosure") && readme.includes("966eccf") && readme.includes("beae996") && readme.includes("Pre-existing work") && readme.includes("WebMCP Challenge extension"), "pre-existing and challenge-window work must remain clearly distinguished with dated commit evidence"),
     check("obsolete_docs_absent", !obsoleteDocumentPresent, "obsolete docs and spec files must not ship"),
     check("dead_guard_absent", !await exists(root, "src/webmcp-guard.js") && !await exists(root, "test/webmcp-guard.test.js"), "the unused standalone WebMCP guard must not ship"),
   ];

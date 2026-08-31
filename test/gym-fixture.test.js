@@ -105,7 +105,7 @@ async function json(origin, pathname, { method = "GET", headers = {}, body } = {
   const response = await fetch(`${origin}${pathname}`, {
     method,
     headers: { ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return response.json();
 }

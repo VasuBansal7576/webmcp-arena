@@ -3,6 +3,19 @@ import { loadMcpManifest } from "./mcp.js";
 import { loadAgentSkills } from "./skills.js";
 import { fetchTextSafely } from "./safe-fetch.js";
 
+const MAX_EXTERNAL_WEBMCP_SCRIPTS = 6;
+const MAX_EXTERNAL_WEBMCP_SCRIPT_BYTES = 256 * 1024;
+const MAX_EXTERNAL_WEBMCP_TOTAL_BYTES = 512 * 1024;
+const MAX_EXTERNAL_WEBMCP_REDIRECTS = 2;
+const MAX_EXTERNAL_WEBMCP_TIMEOUT_MS = 2_000;
+const JAVASCRIPT_CONTENT_TYPES = new Set([
+  "application/ecmascript",
+  "application/javascript",
+  "application/x-javascript",
+  "text/ecmascript",
+  "text/javascript",
+]);
+
 export async function scanUrl(input, options = {}) {
   const startedAt = nowIso();
   const url = new URL(input);
@@ -22,6 +35,10 @@ export async function scanUrl(input, options = {}) {
   const page = analyzeHtml(html, effectiveUrl, home.headers, {
     redactSnippets: Boolean(options.auth),
   });
+  const externalScriptInspection = home.ok && /^(?:text\/html|application\/xhtml\+xml)(?:\s*;|$)/i.test(home.contentType || "")
+    ? await inspectExternalWebMcpScripts(html, effectiveUrl, scopedOptions)
+    : emptyExternalScriptInspection();
+  applyExternalWebMcpInspection(page, externalScriptInspection);
   const targetDocumentValid = validTargetDocument(home, page, html);
   const links = await checkLinks(page.links, effectiveUrl, scopedOptions);
   const cpiRisks = page.critical_elements.filter((item) => item.structural_risk);
@@ -112,6 +129,7 @@ export async function scanUrl(input, options = {}) {
       candidate_count: page.webmcp_candidates.length,
       candidates: page.webmcp_candidates,
       external_scripts_uninspected: page.webmcp_evidence.external_scripts_uninspected,
+      external_script_inspection: externalScriptInspection.summary,
       runtime_discovered: false,
       behavior_verified: false,
       score: null,
@@ -233,10 +251,11 @@ export function analyzeHtml(html, url = new URL("https://example.invalid"), head
   const webmcpCandidates = detectWebMcpCandidates(html);
   const webmcpTools = webmcpCandidates.map((candidate) => candidate.tool_name).filter(Boolean);
   const criticalElements = criticalElementPositions(bodyText, contentHash);
+  const documentBaseUrl = effectiveDocumentBaseUrl(html, url);
   const links = [...html.matchAll(/href=["']([^"'#]+)["']/gi)]
     .map((match) => {
       try {
-        return new URL(match[1], url).href;
+        return new URL(match[1], documentBaseUrl).href;
       } catch {
         return null;
       }
@@ -301,6 +320,163 @@ function detectWebMcpCandidates(html) {
   return [...new Map(candidates.map((candidate) => [JSON.stringify(candidate), candidate])).values()];
 }
 
+async function inspectExternalWebMcpScripts(html, pageUrl, options) {
+  const sources = externalJavaScriptSources(html, pageUrl);
+  const candidates = [];
+  const summary = emptyExternalScriptInspection().summary;
+  summary.references = sources.length;
+  let downloadedBytes = 0;
+
+  for (const source of sources) {
+    if (!source.url || !new Set(["http:", "https:"]).has(source.url.protocol) ||
+        source.url.origin !== pageUrl.origin || source.url.username || source.url.password) {
+      summary.skipped_cross_origin += 1;
+      continue;
+    }
+    summary.same_origin += 1;
+    if (summary.attempted >= MAX_EXTERNAL_WEBMCP_SCRIPTS) {
+      summary.skipped_limit += 1;
+      continue;
+    }
+    const remainingBytes = MAX_EXTERNAL_WEBMCP_TOTAL_BYTES - downloadedBytes;
+    if (remainingBytes < 1) {
+      summary.failures.byte_limit += 1;
+      continue;
+    }
+    summary.attempted += 1;
+
+    let response;
+    try {
+      response = await fetchText(source.url, {
+        ...options,
+        accept: "text/javascript,application/javascript,application/ecmascript,text/ecmascript",
+        maxBytes: Math.min(MAX_EXTERNAL_WEBMCP_SCRIPT_BYTES, remainingBytes),
+        maxRedirects: MAX_EXTERNAL_WEBMCP_REDIRECTS,
+        sameOriginRedirectsOnly: true,
+        timeoutMs: Math.min(options.timeoutMs ?? MAX_EXTERNAL_WEBMCP_TIMEOUT_MS, MAX_EXTERNAL_WEBMCP_TIMEOUT_MS),
+      });
+    } catch (error) {
+      summary.failures[externalScriptFailure(error)] += 1;
+      continue;
+    }
+    if (!response.ok) {
+      summary.failures.other += 1;
+      continue;
+    }
+    const bytes = Buffer.byteLength(response.text);
+    downloadedBytes += bytes;
+    if (!isJavaScriptContentType(response.contentType)) {
+      summary.rejected_content_type += 1;
+      continue;
+    }
+
+    summary.inspected += 1;
+    const found = detectImperativeCandidates(response.text).map((candidate) => ({
+      ...candidate,
+      source: "external_script",
+      source_url: source.url.href,
+    }));
+    candidates.push(...found);
+    summary.candidates_found += found.length;
+  }
+
+  return { candidates, summary };
+}
+
+function emptyExternalScriptInspection() {
+  return {
+    candidates: [],
+    summary: {
+      references: 0,
+      same_origin: 0,
+      attempted: 0,
+      inspected: 0,
+      candidates_found: 0,
+      skipped_cross_origin: 0,
+      skipped_limit: 0,
+      rejected_content_type: 0,
+      failures: {
+        byte_limit: 0,
+        redirect_limit: 0,
+        redirect_origin: 0,
+        timeout: 0,
+        other: 0,
+      },
+    },
+  };
+}
+
+function applyExternalWebMcpInspection(page, inspection) {
+  if (inspection.candidates.length) {
+    page.webmcp_candidates = [...new Map(
+      [...page.webmcp_candidates, ...inspection.candidates]
+        .map((candidate) => [JSON.stringify(candidate), candidate]),
+    ).values()];
+  }
+  page.hasWebMcp = page.hasWebMcp || inspection.candidates.length > 0;
+  page.webmcp_evidence.level = page.hasWebMcp ? "static_marker" : "none_in_fetched_source";
+  page.webmcp_evidence.external_scripts_uninspected = inspection.summary.references - inspection.summary.inspected;
+}
+
+function externalJavaScriptSources(html, pageUrl) {
+  const sourceHtml = String(html);
+  const documentBaseUrl = effectiveDocumentBaseUrl(sourceHtml, pageUrl);
+  const scriptSources = [...sourceHtml.matchAll(/<script\b([^>]*)>[\s\S]*?<\/script>/gi)]
+    .filter((match) => isJavaScriptType(match[1]))
+    .map((match) => htmlAttributeValue(match[1], "src"))
+    .filter(Boolean);
+  const modulePreloads = [...sourceHtml.matchAll(/<link\b([^>]*)>/gi)]
+    .filter((match) => String(htmlAttributeValue(match[1], "rel") || "").toLowerCase().split(/\s+/).includes("modulepreload"))
+    .map((match) => htmlAttributeValue(match[1], "href"))
+    .filter(Boolean);
+  const seen = new Set();
+  return [...scriptSources, ...modulePreloads].flatMap((rawSource) => {
+    try {
+      const url = new URL(decodeEntities(rawSource), documentBaseUrl);
+      url.hash = "";
+      if (seen.has(url.href)) return [];
+      seen.add(url.href);
+      return [{ url }];
+    } catch {
+      return [{ url: null }];
+    }
+  });
+}
+
+function effectiveDocumentBaseUrl(html, pageUrl) {
+  const baseTag = String(html).match(/<base\b([^>]*)>/i);
+  const rawHref = baseTag ? htmlAttributeValue(baseTag[1], "href") : null;
+  if (!rawHref) return pageUrl;
+  try {
+    const candidate = new URL(decodeEntities(rawHref), pageUrl);
+    return new Set(["http:", "https:"]).has(candidate.protocol) ? candidate : pageUrl;
+  } catch {
+    return pageUrl;
+  }
+}
+
+function detectImperativeCandidates(source) {
+  const tokens = tokenizeJavaScript(String(source));
+  return [
+    ...imperativeCandidates(tokens, "document", "current"),
+    ...imperativeCandidates(tokens, "navigator", "legacy"),
+  ];
+}
+
+function isJavaScriptContentType(value) {
+  const essence = String(value).split(";", 1)[0].trim().toLowerCase();
+  return JAVASCRIPT_CONTENT_TYPES.has(essence);
+}
+
+function externalScriptFailure(error) {
+  const message = `${error?.message || ""} ${error?.cause?.message || ""}`.toLowerCase();
+  if (/byte limit/.test(message)) return "byte_limit";
+  if (/redirect limit/.test(message)) return "redirect_limit";
+  if (/leaves the requested origin/.test(message)) return "redirect_origin";
+  if (/timed out|aborted/.test(message)) return "timeout";
+  return "other";
+}
+
 function htmlAttributeValue(tag, name) {
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = String(tag).match(new RegExp(`(?:^|\\s)${escapedName}\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s"'=<>\u0060]+))`, "i"));
@@ -310,6 +486,8 @@ function htmlAttributeValue(tag, name) {
 function imperativeCandidates(tokens, owner, syntax) {
   const aliases = new Set();
   const functionAliases = new Set();
+  const stringBindings = new Map();
+  const toolBindings = new Map();
   const found = [];
   for (let index = 0; index < tokens.length; index += 1) {
     if (tokens[index]?.type === "identifier" && tokens[index + 1]?.value === "=" &&
@@ -329,6 +507,14 @@ function imperativeCandidates(tokens, owner, syntax) {
     }
   }
   for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index]?.type === "identifier" && tokens[index + 1]?.value === "=") {
+      if (tokens[index + 2]?.type === "string") {
+        stringBindings.set(tokens[index].value, tokens[index + 2].value);
+      } else if (tokens[index + 2]?.value === "{") {
+        const boundName = objectStringProperty(tokens, index + 2, "name", stringBindings);
+        if (boundName) toolBindings.set(tokens[index].value, boundName);
+      }
+    }
     let cursor = matchesMember(tokens, index, owner, "modelContext", "registerTool");
     if (cursor === -1 && tokens[index]?.type === "identifier" && aliases.has(tokens[index].value)) {
       cursor = matchesMember(tokens, index, tokens[index].value, "registerTool");
@@ -336,9 +522,16 @@ function imperativeCandidates(tokens, owner, syntax) {
     if (cursor === -1 && tokens[index]?.type === "identifier" && functionAliases.has(tokens[index].value)) {
       cursor = index + 1;
     }
-    if (cursor === -1 || tokens[cursor]?.value !== "(" || tokens[cursor + 1]?.value !== "{") continue;
-    const name = objectStringProperty(tokens, cursor + 1, "name");
-    if (name) found.push({ kind: "imperative", syntax, tool_name: name.toLowerCase() });
+    if (cursor === -1 || tokens[cursor]?.value !== "(") continue;
+    const argument = tokens[cursor + 1];
+    const name = argument?.value === "{"
+      ? objectStringProperty(tokens, cursor + 1, "name", stringBindings)
+      : argument?.type === "identifier" ? toolBindings.get(argument.value) : null;
+    found.push({
+      kind: "imperative",
+      syntax,
+      tool_name: name ? name.toLowerCase() : null,
+    });
   }
   return found;
 }
@@ -384,7 +577,7 @@ function destructuredAlias(tokens, start, end, property) {
   return null;
 }
 
-function objectStringProperty(tokens, start, property) {
+function objectStringProperty(tokens, start, property, stringBindings = new Map()) {
   let depth = 0;
   for (let index = start; index < tokens.length && index < start + 2_000; index += 1) {
     const token = tokens[index];
@@ -393,8 +586,9 @@ function objectStringProperty(tokens, start, property) {
       depth -= 1;
       if (depth === 0) return null;
     } else if (depth === 1 && (token.type === "identifier" || token.type === "string") && token.value === property &&
-               tokens[index + 1]?.value === ":" && tokens[index + 2]?.type === "string") {
-      return tokens[index + 2].value;
+               tokens[index + 1]?.value === ":") {
+      if (tokens[index + 2]?.type === "string") return tokens[index + 2].value;
+      if (tokens[index + 2]?.type === "identifier") return stringBindings.get(tokens[index + 2].value) || null;
     } else if (depth === 1 && token.value === "[" && tokens[index + 1]?.type === "string" &&
                tokens[index + 1].value === property && tokens[index + 2]?.value === "]" &&
                tokens[index + 3]?.value === ":" && tokens[index + 4]?.type === "string") {
@@ -445,7 +639,10 @@ function tokenizeJavaScript(source) {
     }
     if (char === "`") {
       const template = readTemplateLiteral(source, index + 1);
-      for (const expression of template.expressions) tokens.push(...tokenizeJavaScript(expression));
+      if (template.expressions.length === 0) tokens.push({ type: "string", value: template.value });
+      else {
+        for (const expression of template.expressions) tokens.push(...tokenizeJavaScript(expression));
+      }
       index = template.end;
       continue;
     }
@@ -545,10 +742,13 @@ function readJavaScriptString(source, start, quote) {
 
 function readTemplateLiteral(source, start) {
   const expressions = [];
+  let value = "";
   let index = start;
   while (index < source.length) {
-    if (source[index] === "\\") index += 2;
-    else if (source[index] === "`") return { end: index + 1, expressions };
+    if (source[index] === "\\") {
+      value += source[index + 1] || "";
+      index += 2;
+    } else if (source[index] === "`") return { end: index + 1, expressions, value };
     else if (source[index] === "$" && source[index + 1] === "{") {
       const expressionStart = index + 2;
       let cursor = expressionStart;
@@ -571,9 +771,12 @@ function readTemplateLiteral(source, start) {
       }
       if (depth === 0) expressions.push(source.slice(expressionStart, cursor - 1));
       index = cursor;
-    } else index += 1;
+    } else {
+      value += source[index];
+      index += 1;
+    }
   }
-  return { end: source.length, expressions };
+  return { end: source.length, expressions, value };
 }
 
 async function checkLinks(links, baseUrl, options) {

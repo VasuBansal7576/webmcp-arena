@@ -36,11 +36,8 @@ export const CHECKOUT_WEBMCP_TOOL = deepFreeze({
   },
   annotations: {
     readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
+    untrustedContentHint: false,
   },
-  origin: null,
 });
 
 const TOOL_DEFINITION_HASH = hashWebMcpToolDefinition(CHECKOUT_WEBMCP_TOOL);

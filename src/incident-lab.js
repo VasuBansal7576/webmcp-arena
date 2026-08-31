@@ -7,7 +7,14 @@ export function createIncidentLab({ verifier, now = () => new Date() } = {}) {
   const scenarios = buildScenarios();
 
   function listScenarios() {
-    return scenarios.map(({ humanRoute, vulnerableRoute, fixedRoute, delegation, counterfactual, ...metadata }) => ({ ...metadata }));
+    return scenarios.map(({
+      humanRoute: _humanRoute,
+      vulnerableRoute: _vulnerableRoute,
+      fixedRoute: _fixedRoute,
+      delegation: _delegation,
+      counterfactual: _counterfactual,
+      ...metadata
+    }) => ({ ...metadata }));
   }
 
   function run({ scenarioId, version = "vulnerable", mode = "enforce" }) {

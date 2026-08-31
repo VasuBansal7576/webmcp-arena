@@ -49,6 +49,12 @@ test("hosted audits accept only owned Checkout versions and bind the exact revie
   assert.equal(vulnerable.review.principalHash, vulnerable.review.principal.hash);
   assert.match(vulnerable.review.toolDefinitionHash, /^[A-Za-z0-9_-]{43}$/);
   assert.match(vulnerable.review.contractHash, /^[A-Za-z0-9_-]{43}$/);
+  assert.deepEqual(vulnerable.review.effects.map(({ kind }) => kind), [
+    "authorization",
+    "outcome",
+    "effect_settlement",
+    "final_state",
+  ]);
   assert.notEqual(vulnerable.review.targetHash, fixed.review.targetHash);
   assert.notEqual(vulnerable.review.release.version, fixed.review.release.version);
   assert.notEqual(vulnerable.review.release.artifact.digest, fixed.review.release.artifact.digest);
@@ -200,6 +206,7 @@ test("execution rejects tampering with every displayed exact-intent review field
     ["arguments", (record) => { record.review.arguments.cartId = "cart_changed_after_review"; }],
     ["argument keys", (record) => { record.review.argumentKeys = []; }],
     ["claim scope", (record) => { record.review.claimScope = "arbitrary_origin"; }],
+    ["expected effects", (record) => { record.review.effects[1].status = "purchased"; }],
     ["invariants", (record) => { record.review.invariants.money.maxAmount = 999; }],
     ["baseline safety", (record) => { record.review.baselineSafety.status = "fail"; }],
     ["trust mode", (record) => { record.review.trustMode = "caller_supplied"; }],
@@ -273,6 +280,7 @@ test("hosted evidence verification rejects semantic tampering even before signat
     ["implementation", (value) => { value.exactIntent.implementationVersion = "fixed"; }],
     ["target label", (value) => { value.exactIntent.targetPreset = "Trusted checkout"; }],
     ["claim scope", (value) => { value.exactIntent.claimScope = "arbitrary_origin"; }],
+    ["expected effect", (value) => { value.exactIntent.effects[1].status = "purchased"; }],
     ["argument key omission", (value) => {
       value.exactIntent.argumentKeys = [];
       value.boundaryBundle.invocation.argumentKeys = [];

@@ -363,7 +363,7 @@ test("WebMCP preflight ignores JavaScript strings, JSON scripts, and commented m
       const example = "document.modelContext.registerTool({ name: 'double_string' })";
       const legacy = 'navigator.modelContext.registerTool({ name: "single_string" })';
       const template = \`document.modelContext.registerTool({ name: "template_string" })\`;
-      const regex = /document.modelContext.registerTool\\(\{name:"regex_marker"\}\)/;
+      const regex = /document[.]modelContext[.]registerTool/;
     </script>
   </body></html>`);
 
@@ -408,6 +408,266 @@ test("WebMCP preflight recognizes executed template expressions, bracket access,
     { kind: "imperative", syntax: "current", tool_name: "template_bracket" },
     { kind: "imperative", syntax: "current", tool_name: "destructured_context" },
   ]);
+});
+
+test("WebMCP preflight follows simple local variables used for tool registration", () => {
+  const result = analyzeHtml(`<!doctype html><html><body><script type="module">
+    const checkoutTool = { name: "variable_checkout" };
+    document.modelContext.registerTool(checkoutTool);
+    const searchName = "variable_search";
+    const searchTool = { name: searchName };
+    const context = document.modelContext;
+    context.registerTool(searchTool);
+  </script></body></html>`);
+
+  assert.deepEqual(result.webmcp_candidates, [
+    { kind: "imperative", syntax: "current", tool_name: "variable_checkout" },
+    { kind: "imperative", syntax: "current", tool_name: "variable_search" },
+  ]);
+});
+
+test("WebMCP preflight reports direct registrations even when static name extraction is impossible", () => {
+  const result = analyzeHtml(`<!doctype html><html><body><script type="module">
+    const name = "shorthand_tool";
+    document.modelContext.registerTool({ name, execute() {} });
+    document.modelContext.registerTool(createTool());
+    document.modelContext.registerTool({ ...baseTool, execute() {} });
+  </script></body></html>`);
+
+  assert.equal(result.hasWebMcp, true);
+  assert.deepEqual(result.webmcp_candidates, [
+    { kind: "imperative", syntax: "current", tool_name: null },
+  ]);
+  assert.equal(result.webmcp_evidence.level, "static_marker");
+  assert.equal(result.webmcp_evidence.runtime_discovered, false);
+});
+
+test("WebMCP preflight keeps dead-code matches explicitly static and unverified", () => {
+  const result = analyzeHtml(`<!doctype html><html><body><script>
+    if (false) document.modelContext.registerTool({ name: "never_executed" });
+  </script></body></html>`);
+
+  assert.equal(result.hasWebMcp, true);
+  assert.deepEqual(result.webmcp_candidates, [
+    { kind: "imperative", syntax: "current", tool_name: "never_executed" },
+  ]);
+  assert.equal(result.webmcp_evidence.level, "static_marker");
+  assert.equal(result.webmcp_evidence.runtime_discovered, false);
+  assert.equal(result.webmcp_evidence.behavior_verified, false);
+});
+
+test("WebMCP preflight inspects bounded same-origin JavaScript bundles", async (t) => {
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    if (pathname === "/") return send(response, 200, readablePage('<script type="module" src="/assets/app.js"></script>'), "text/html");
+    if (pathname === "/assets/app.js") {
+      return send(response, 200, `
+        const checkoutTool = { name: "bundle_checkout" };
+        document.modelContext.registerTool(checkoutTool);
+      `, "text/javascript; charset=utf-8");
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(server);
+  t.after(() => close(server));
+
+  const result = await scanUrl(origin, { allowPrivateTargets: true, linkLimit: 0 });
+
+  assert.equal(result.page.hasWebMcp, true);
+  assert.deepEqual(result.page.webmcp_candidates, [{
+    kind: "imperative",
+    syntax: "current",
+    tool_name: "bundle_checkout",
+    source: "external_script",
+    source_url: `${origin}/assets/app.js`,
+  }]);
+  assert.equal(result.page.webmcp_evidence.external_scripts_uninspected, 0);
+  assert.deepEqual(result.webmcp_preflight.external_script_inspection, {
+    references: 1,
+    same_origin: 1,
+    attempted: 1,
+    inspected: 1,
+    candidates_found: 1,
+    skipped_cross_origin: 0,
+    skipped_limit: 0,
+    rejected_content_type: 0,
+    failures: {
+      byte_limit: 0,
+      redirect_limit: 0,
+      redirect_origin: 0,
+      timeout: 0,
+      other: 0,
+    },
+  });
+});
+
+test("WebMCP preflight inspects same-origin modulepreloads and static template names", async (t) => {
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    if (pathname === "/") {
+      return send(response, 200, readablePage('<link rel="modulepreload" href="/assets/page.js">'), "text/html");
+    }
+    if (pathname === "/assets/page.js") {
+      return send(response, 200, "document.modelContext.registerTool({ name: `production_bundle_tool` });", "text/javascript");
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(server);
+  t.after(() => close(server));
+
+  const result = await scanUrl(origin, { allowPrivateTargets: true, linkLimit: 0 });
+
+  assert.equal(result.page.hasWebMcp, true);
+  assert.equal(result.page.webmcp_candidates[0].tool_name, "production_bundle_tool");
+  assert.equal(result.page.webmcp_candidates[0].source_url, `${origin}/assets/page.js`);
+});
+
+test("WebMCP preflight resolves bundles against the document base URL", async (t) => {
+  const requested = [];
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    requested.push(pathname);
+    if (pathname === "/") {
+      return send(response, 200, readablePage(`
+        <base href="/assets/">
+        <script type="module" src="bundle.js"></script>
+      `), "text/html");
+    }
+    if (pathname === "/assets/bundle.js") {
+      return send(response, 200, 'document.modelContext.registerTool({ name: "base_aware_tool" });', "text/javascript");
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(server);
+  t.after(() => close(server));
+
+  const result = await scanUrl(origin, { allowPrivateTargets: true, linkLimit: 0 });
+
+  assert.equal(result.page.hasWebMcp, true);
+  assert.equal(result.page.webmcp_candidates[0].tool_name, "base_aware_tool");
+  assert.equal(result.page.webmcp_candidates[0].source_url, `${origin}/assets/bundle.js`);
+  assert.equal(requested.includes("/bundle.js"), false);
+});
+
+test("WebMCP preflight never requests cross-origin scripts or cross-origin redirect targets", async (t) => {
+  let crossOriginRequests = 0;
+  const receiver = createServer((_request, response) => {
+    crossOriginRequests += 1;
+    return send(response, 200, 'document.modelContext.registerTool({ name: "cross_origin" });', "text/javascript");
+  });
+  const receiverOrigin = await listen(receiver);
+  t.after(() => close(receiver));
+
+  const target = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    if (pathname === "/") {
+      return send(response, 200, readablePage(`
+        <script src="${receiverOrigin}/direct.js"></script>
+        <script src="/redirect.js"></script>
+      `), "text/html");
+    }
+    if (pathname === "/redirect.js") {
+      response.writeHead(302, { location: `${receiverOrigin}/redirected.js` });
+      return response.end();
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(target);
+  t.after(() => close(target));
+
+  const result = await scanUrl(origin, { allowPrivateTargets: true, linkLimit: 0 });
+
+  assert.equal(crossOriginRequests, 0);
+  assert.equal(result.page.hasWebMcp, false);
+  assert.equal(result.page.webmcp_evidence.external_scripts_uninspected, 2);
+  assert.equal(result.webmcp_preflight.external_script_inspection.skipped_cross_origin, 1);
+  assert.equal(result.webmcp_preflight.external_script_inspection.failures.redirect_origin, 1);
+});
+
+test("WebMCP preflight enforces the external-script count budget", async (t) => {
+  const requested = [];
+  const scripts = Array.from({ length: 8 }, (_, index) => `<script src="/bundle-${index + 1}.js"></script>`).join("");
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    if (pathname === "/") return send(response, 200, readablePage(scripts), "text/html");
+    if (/^\/bundle-\d+\.js$/.test(pathname)) {
+      requested.push(pathname);
+      return send(response, 200, "export {};", "text/javascript");
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(server);
+  t.after(() => close(server));
+
+  const result = await scanUrl(origin, { allowPrivateTargets: true, linkLimit: 0 });
+
+  assert.deepEqual(requested, [
+    "/bundle-1.js",
+    "/bundle-2.js",
+    "/bundle-3.js",
+    "/bundle-4.js",
+    "/bundle-5.js",
+    "/bundle-6.js",
+  ]);
+  assert.equal(result.webmcp_preflight.external_script_inspection.skipped_limit, 2);
+  assert.equal(result.page.webmcp_evidence.external_scripts_uninspected, 2);
+});
+
+test("WebMCP preflight rejects oversized, mistyped, over-redirected, and timed-out bundles", async (t) => {
+  let finalRedirectRequests = 0;
+  const server = createServer((request, response) => {
+    const pathname = new URL(request.url, "http://127.0.0.1").pathname;
+    if (pathname === "/") {
+      return send(response, 200, readablePage(`
+        <script src="/oversized.js"></script>
+        <script src="/mistyped.js"></script>
+        <script src="/redirect-1.js"></script>
+        <script src="/slow.js"></script>
+      `), "text/html");
+    }
+    if (pathname === "/oversized.js") {
+      return send(response, 200, `${"x".repeat(256 * 1024)}document.modelContext.registerTool({name:"too_late"})`, "text/javascript");
+    }
+    if (pathname === "/mistyped.js") {
+      return send(response, 200, 'document.modelContext.registerTool({name:"wrong_mime"})', "text/html");
+    }
+    if (pathname === "/redirect-1.js") {
+      response.writeHead(302, { location: "/redirect-2.js" });
+      return response.end();
+    }
+    if (pathname === "/redirect-2.js") {
+      response.writeHead(302, { location: "/redirect-3.js" });
+      return response.end();
+    }
+    if (pathname === "/redirect-3.js") {
+      response.writeHead(302, { location: "/redirect-final.js" });
+      return response.end();
+    }
+    if (pathname === "/redirect-final.js") {
+      finalRedirectRequests += 1;
+      return send(response, 200, 'document.modelContext.registerTool({name:"redirected_too_far"})', "text/javascript");
+    }
+    if (pathname === "/slow.js") {
+      return setTimeout(() => send(response, 200, 'document.modelContext.registerTool({name:"too_slow"})', "text/javascript"), 150);
+    }
+    return send(response, 404, "missing");
+  });
+  const origin = await listen(server);
+  t.after(() => close(server));
+
+  const result = await scanUrl(origin, {
+    allowPrivateTargets: true,
+    linkLimit: 0,
+    timeoutMs: 75,
+  });
+
+  assert.equal(finalRedirectRequests, 0);
+  assert.equal(result.page.hasWebMcp, false);
+  assert.equal(result.page.webmcp_evidence.external_scripts_uninspected, 4);
+  assert.equal(result.webmcp_preflight.external_script_inspection.rejected_content_type, 1);
+  assert.equal(result.webmcp_preflight.external_script_inspection.failures.byte_limit, 1);
+  assert.equal(result.webmcp_preflight.external_script_inspection.failures.redirect_limit, 1);
+  assert.equal(result.webmcp_preflight.external_script_inspection.failures.timeout, 1);
 });
 
 test("WebMCP preflight ignores declarative-looking markup inside inert containers", () => {

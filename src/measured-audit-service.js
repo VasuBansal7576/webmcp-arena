@@ -80,7 +80,7 @@ export function createMeasuredAuditService({
     } catch {
       return publicAudit(transition(record.id, "failed", { error: { code: "preparation_failed" } }));
     }
-    const awaiting = transition(record.id, "awaiting_approval", {
+    transition(record.id, "awaiting_approval", {
       review: structuredClone(prepared.review),
       execution: structuredClone(prepared.execution),
       expiresAt: prepared.expiresAt || null,
@@ -196,12 +196,6 @@ export function createMeasuredAuditService({
       repository.write(repositoryKey, records);
       return structuredClone(records[index]);
     });
-  }
-
-  function requireRecord(auditId) {
-    const record = repository.read(repositoryKey, []).find((candidate) => candidate.id === auditId);
-    if (!record) throw new Error("unknown measured audit");
-    return record;
   }
 
   function expirePendingAudit(auditId) {

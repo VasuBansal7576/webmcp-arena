@@ -32,9 +32,7 @@ type PreviewCheckoutToolContract = Readonly<{
   }>;
   annotations: Readonly<{
     readOnlyHint: true;
-    destructiveHint: false;
-    idempotentHint: true;
-    openWorldHint: false;
+    untrustedContentHint: false;
   }>;
 }>;
 
@@ -122,9 +120,7 @@ export const PREVIEW_CHECKOUT_TOOL = Object.freeze({
   },
   annotations: {
     readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: false,
+    untrustedContentHint: false,
   },
 } satisfies PreviewCheckoutToolContract);
 

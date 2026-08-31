@@ -4,9 +4,19 @@ import {
   resolveEvidenceSigningKey,
   verifyEvidenceAttestation,
 } from "@/lib/evidence-signing";
+import {
+  parsePortableHostedAuditProof,
+  PortableProofError,
+  verifyPortableHostedAuditProof,
+} from "@/lib/portable-proof";
+import {
+  readUtf8RequestBody,
+  RequestBodyLimitError,
+} from "@/lib/request-body";
 import { verifyHostedAuditRecord } from "@/src/hosted-audit.js";
 
 export const runtime = "edge";
+const MAX_PORTABLE_PROOF_BYTES = 2 * 1024 * 1024;
 
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("id") || "";
@@ -46,6 +56,43 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Arena evidence verification failed", error);
     return Response.json({ error: "Arena could not verify this audit" }, {
+      status: 503,
+      headers: { "cache-control": "no-store", "retry-after": "30" },
+    });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const source = await readUtf8RequestBody(request, MAX_PORTABLE_PROOF_BYTES);
+    let candidate: unknown;
+    try {
+      candidate = JSON.parse(source);
+    } catch {
+      throw new PortableProofError("portable_proof_json_invalid");
+    }
+    const proof = parsePortableHostedAuditProof(candidate);
+    const expectedTrustRoot = new URL("/.well-known/arena-signing-keys.json", request.url).href;
+    if (proof.trustRoot !== expectedTrustRoot) {
+      throw new PortableProofError("portable_proof_trust_root_mismatch");
+    }
+    const result = await verifyPortableHostedAuditProof(proof, await getEvidenceSigningKeySet());
+    return Response.json(result, { headers: { "cache-control": "no-store" } });
+  } catch (error) {
+    if (error instanceof RequestBodyLimitError) {
+      return Response.json({ error: "portable proof is too large" }, {
+        status: 413,
+        headers: { "cache-control": "no-store" },
+      });
+    }
+    if (error instanceof PortableProofError) {
+      return Response.json({ error: "portable proof is invalid", reason: error.reason }, {
+        status: 400,
+        headers: { "cache-control": "no-store" },
+      });
+    }
+    console.error("Arena portable evidence verification failed", error);
+    return Response.json({ error: "Arena could not verify this portable proof" }, {
       status: 503,
       headers: { "cache-control": "no-store", "retry-after": "30" },
     });

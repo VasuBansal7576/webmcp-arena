@@ -420,7 +420,12 @@ export function createTrustGateway({ secret, tools = [], requireVerifiedAgents =
         revocations: [...revoked.values()].map((value) => structuredClone(value)),
       };
     }),
-    getTools: () => [...catalog.values()].map(({ execute, amount, validate, ...tool }) => ({ ...tool })),
+    getTools: () => [...catalog.values()].map(({
+      execute: _execute,
+      amount: _amount,
+      validate: _validate,
+      ...tool
+    }) => ({ ...tool })),
     verifyReceipt: (receipt) => proof ? proof.verify(receipt) : Boolean(verifyReceipt(receipt, secret)),
   };
 }
@@ -432,12 +437,12 @@ function replaceMap(target, entries) {
 
 function publicApproval(approval) {
   const {
-    delegation,
-    idempotency_record_key,
-    budget_reservation_id,
-    request_hash,
-    tool_context_id,
-    tool_context_hash,
+    delegation: _delegation,
+    idempotency_record_key: _idempotencyRecordKey,
+    budget_reservation_id: _budgetReservationId,
+    request_hash: _requestHash,
+    tool_context_id: _toolContextId,
+    tool_context_hash: _toolContextHash,
     ...safe
   } = approval;
   return redactSensitive(safe);

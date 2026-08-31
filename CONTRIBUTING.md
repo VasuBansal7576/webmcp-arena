@@ -6,6 +6,7 @@ Use Node.js 22 or newer. Write a failing public-interface test before changing b
 
 ```bash
 npm test
+npm run lint
 npm run release:check
 ```
 

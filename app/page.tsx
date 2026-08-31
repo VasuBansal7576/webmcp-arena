@@ -8,7 +8,7 @@ type AuditState = "awaiting_approval" | "running" | "waiting_for_effects" | "com
 type Finding = { code: string; kind: string; message: string };
 type EvidenceEvent = { sequence: number; channel: string; kind: string; [key: string]: unknown };
 type AuthorizationCheck = { check: string; status: "denied" | "executed" | "unexpected"; reason: string | null };
-type ToolDefinition = { name: string; title?: string | null; description: string; inputSchema: { required?: string[]; additionalProperties?: boolean; [key: string]: unknown }; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean; [key: string]: unknown } | null };
+type ToolDefinition = { name: string; title?: string | null; description: string; inputSchema: { required?: string[]; additionalProperties?: boolean; [key: string]: unknown }; annotations?: { readOnlyHint?: boolean; untrustedContentHint?: boolean } | null };
 type ProofVerification =
   | { valid: true; semanticValid: true; signatureValid: true; keyMatches: true; keyId: string; trustRoot: string }
   | { valid: false; semanticValid: boolean; signatureValid: boolean; keyMatches: boolean; keyId: string; trustRoot: string; reason: string };
@@ -24,7 +24,7 @@ type AuditRecord = {
   updatedAt: string;
   approvalExpiresAt: string;
   retentionUntil: string;
-  review: { adapterId: string; implementationVersion: AuditVersion; targetPreset: string; target: string; targetHash: string; release: { id: string; version: string; generator: string; artifact: { algorithm: "sha256"; digest: string; subject: string }; hash: string }; releaseHash: string; releaseManifest: { tools: ToolDefinition[] }; coverage: { auditedTools: string[]; totalTools: number; complete: boolean }; principal: { label: string; scope: string; hash: string }; principalHash: string; agent: { id: string; assurance: string; hash: string }; agentHash: string; toolName: string; toolDefinition: ToolDefinition; toolDefinitionHash: string; toolHash: string; claimScope: string; contractHash: string; arguments: Record<string, unknown>; argumentsHash: string; invariants: { money?: { currency?: string; maxAmount?: number } }; baselineSafety: { status: string }; trustMode: "server_attested"; approvalAssurance: string };
+  review: { adapterId: string; implementationVersion: AuditVersion; targetPreset: string; target: string; targetHash: string; release: { id: string; version: string; generator: string; artifact: { algorithm: "sha256"; digest: string; subject: string }; hash: string }; releaseHash: string; releaseManifest: { tools: ToolDefinition[] }; coverage: { auditedTools: string[]; totalTools: number; complete: boolean }; principal: { label: string; scope: string; hash: string }; principalHash: string; agent: { id: string; assurance: string; hash: string }; agentHash: string; toolName: string; toolDefinition: ToolDefinition; toolDefinitionHash: string; toolHash: string; claimScope: string; contractHash: string; arguments: Record<string, unknown>; argumentsHash: string; effects: EvidenceEvent[]; invariants: { requireAuthorizationBeforeEffect: boolean; requireApprovalBeforeEffect: boolean; requireEffectSettlement: boolean; allowedAuthorizationRules: string[] | null; allowedResourceOwners: string[] | null; money?: { currency?: string; maxAmount?: number } }; baselineSafety: { status: string }; trustMode: "server_attested"; approvalAssurance: string };
   history: Array<{ state: string; at: string }>;
   result: null | {
     verdict: "pass" | "fail";
@@ -77,7 +77,7 @@ export default function Home() {
       const response = await requestJson<AuditStartResponse>("/api/audits", { method: "POST", body: JSON.stringify({ version, idempotencyKey }) });
       if (response.approvalCapability) approvalCapabilityRef.current = { auditId: response.audit.id, value: response.approvalCapability };
       adoptAudit(response.audit);
-      return publicAudit(response.audit);
+      return agentAuditStatus(response.audit);
     } catch (caught) {
       setError(errorMessage(caught));
       throw caught;
@@ -87,7 +87,7 @@ export default function Home() {
   const getStatus = useCallback(async (auditId: string) => {
     const next = await requestJson<AuditRecord>(`/api/audits?id=${encodeURIComponent(auditId)}`);
     if (auditRef.current?.id === auditId) adoptAudit(next);
-    return publicAudit(next);
+    return agentAuditStatus(next);
   }, [adoptAudit]);
 
   useEffect(() => {
@@ -194,8 +194,8 @@ export default function Home() {
       </header>
 
       <section className="hero" id="top">
-        <div><p className="eyebrow">Independent release gate for WebMCP</p><h1>Generated tools need <em>proof.</em></h1></div>
-        <p className="lede">Tool generators can publish WebMCP in minutes. Arena executes the human and agent routes, observes settled backend effects, and blocks releases that cross the user&apos;s protection boundary.</p>
+        <div><p className="eyebrow">Behavioral release evidence for WebMCP</p><h1>Generated tools need <em>proof.</em></h1></div>
+        <p className="lede">Tool generators can publish WebMCP in minutes. Arena executes the human and agent routes, observes settled backend effects, and returns a signed verdict that release systems can enforce.</p>
       </section>
 
       <section className="workbench" aria-labelledby="proof-title">
@@ -204,7 +204,7 @@ export default function Home() {
 
         <div className="flow-grid">
           <article className="flow-card"><span className="step">01</span><h3>Load a generated release</h3><p>The agent chooses a server-owned test release. It cannot submit routes, evidence, or approval claims.</p><div className="button-row"><Button size="lg" disabled={busy} onClick={() => startAudit("vulnerable")}>Audit unsafe release</Button><Button size="lg" variant="secondary" disabled={busy} onClick={() => startAudit("fixed")}>Audit fixed release</Button></div></article>
-          <article className="flow-card review-card"><span className="step">02</span><h3>Review the exact intent</h3>{audit ? <dl><div><dt>Release</dt><dd title={audit.review.release.hash}>{audit.review.release.generator} · {audit.review.release.version} · {audit.review.coverage.auditedTools.length}/{audit.review.coverage.totalTools} tools</dd></div><div><dt>Artifact</dt><dd title={`${audit.review.release.artifact.subject}\n${audit.review.release.artifact.digest}`}>{audit.review.release.artifact.algorithm} · {short(audit.review.release.artifact.digest)}</dd></div><div><dt>Measurement</dt><dd>{audit.review.trustMode.replaceAll("_", " ")} · {audit.review.adapterId} {audit.review.implementationVersion}</dd></div><div><dt>Account</dt><dd title={audit.review.principal.hash}>{audit.review.principal.label} · {audit.review.principal.scope}</dd></div><div><dt>Agent claim</dt><dd title={audit.review.agent.hash}>{audit.review.agent.id} · self-asserted</dd></div><div><dt>Target</dt><dd title={`${audit.review.target}\n${audit.review.targetHash}`}>{audit.review.targetPreset} · {short(audit.review.targetHash)}</dd></div><div><dt>Tool claim</dt><dd>{audit.review.toolName} · {audit.review.toolDefinition.annotations?.readOnlyHint ? "read-only" : "writes"}</dd></div><div><dt>Description</dt><dd>{audit.review.toolDefinition.description}</dd></div><div><dt>Schema</dt><dd title={JSON.stringify(audit.review.toolDefinition.inputSchema)}>{schemaSummary(audit.review.toolDefinition)}</dd></div><div><dt>Definition</dt><dd title={audit.review.toolDefinitionHash}>{short(audit.review.toolDefinitionHash)}</dd></div><div><dt>Arguments</dt><dd title={JSON.stringify(audit.review.arguments)}>{JSON.stringify(audit.review.arguments)}</dd></div><div><dt>Spend ceiling</dt><dd>{audit.review.invariants.money?.currency || "USD"} {audit.review.invariants.money?.maxAmount ?? 0}</dd></div><div><dt>Review expires</dt><dd>{new Date(audit.approvalExpiresAt).toLocaleTimeString()}</dd></div><div><dt>Proof retained</dt><dd>{new Date(audit.retentionUntil).toLocaleDateString()}</dd></div><div><dt>Contract</dt><dd title={audit.review.contractHash}>{short(audit.review.contractHash)}</dd></div></dl> : <p className="empty">Start an audit to prepare the exact release and intent.</p>}<Button size="lg" className="approve" disabled={busy || audit?.state !== "awaiting_approval"} onClick={approve}>Approve exact intent</Button><small>No approval WebMCP tool exists. The interface capability is single-use and session-bound.</small></article>
+          <article className="flow-card review-card"><span className="step">02</span><h3>Review the exact intent</h3>{audit ? <dl><div><dt>Release</dt><dd title={audit.review.release.hash}>{audit.review.release.generator} · {audit.review.release.version} · {audit.review.coverage.auditedTools.length}/{audit.review.coverage.totalTools} tools</dd></div><div><dt>Artifact</dt><dd title={`${audit.review.release.artifact.subject}\n${audit.review.release.artifact.digest}`}>{audit.review.release.artifact.algorithm} · {short(audit.review.release.artifact.digest)}</dd></div><div><dt>Measurement</dt><dd>{audit.review.trustMode.replaceAll("_", " ")} · {audit.review.adapterId} {audit.review.implementationVersion}</dd></div><div><dt>Account</dt><dd title={audit.review.principal.hash}>{audit.review.principal.label} · {audit.review.principal.scope}</dd></div><div><dt>Agent claim</dt><dd title={audit.review.agent.hash}>{audit.review.agent.id} · self-asserted</dd></div><div><dt>Target</dt><dd title={`${audit.review.target}\n${audit.review.targetHash}`}>{audit.review.targetPreset} · {short(audit.review.targetHash)}</dd></div><div><dt>Tool claim</dt><dd>{audit.review.toolName} · {audit.review.toolDefinition.annotations?.readOnlyHint ? "read-only" : "writes"}</dd></div><div><dt>Description</dt><dd>{audit.review.toolDefinition.description}</dd></div><div><dt>Schema</dt><dd title={JSON.stringify(audit.review.toolDefinition.inputSchema)}>{schemaSummary(audit.review.toolDefinition)}</dd></div><div><dt>Definition</dt><dd title={audit.review.toolDefinitionHash}>{short(audit.review.toolDefinitionHash)}</dd></div><div><dt>Arguments</dt><dd title={JSON.stringify(audit.review.arguments)}>{JSON.stringify(audit.review.arguments)}</dd></div><div><dt>Expected effects</dt><dd title={JSON.stringify(audit.review.effects)}>{effectSummary(audit.review.effects)}</dd></div><div><dt>Authorization</dt><dd>{audit.review.invariants.requireAuthorizationBeforeEffect ? "required" : "not required"} · {listOrAny(audit.review.invariants.allowedAuthorizationRules)}</dd></div><div><dt>Resource owners</dt><dd>{listOrAny(audit.review.invariants.allowedResourceOwners)}</dd></div><div><dt>Settlement</dt><dd>{audit.review.invariants.requireEffectSettlement ? "terminal evidence required" : "not required"}</dd></div><div><dt>Spend ceiling</dt><dd>{audit.review.invariants.money?.currency || "USD"} {audit.review.invariants.money?.maxAmount ?? 0}</dd></div><div><dt>Review expires</dt><dd>{new Date(audit.approvalExpiresAt).toLocaleTimeString()}</dd></div><div><dt>Proof retained</dt><dd>{new Date(audit.retentionUntil).toLocaleDateString()}</dd></div><div><dt>Contract</dt><dd title={audit.review.contractHash}>{short(audit.review.contractHash)}</dd></div></dl> : <p className="empty">Start an audit to prepare the exact release and intent.</p>}<Button size="lg" className="approve" disabled={busy || audit?.state !== "awaiting_approval"} onClick={approve}>Approve exact intent</Button><small>No approval WebMCP tool exists. The interface capability is single-use and session-bound.</small></article>
           <article className="flow-card"><span className="step">03</span><h3>Observe settled outcome</h3>{audit?.result ? <div className={`verdict ${verdict}`}><strong>{verdict?.toUpperCase()}</strong><p>{audit.result.summary}</p></div> : <p className="empty">{audit ? stateMessage(audit.state) : "No route has executed."}</p>}<div className="stage-row">{["preparing", "awaiting_approval", "running", "waiting_for_effects", "completed"].map((state) => <span key={state} className={steps.has(state) ? "done" : ""}>{state.replaceAll("_", " ")}</span>)}</div></article>
         </div>
         {error && <p role="alert" className="error">{error}</p>}
@@ -236,8 +236,57 @@ function proofHeading(state: ProofState) { if (state.kind === "valid") return "V
 function proofTrustRoot(state: ProofState) { if (state.kind === "valid") return state.proof.trustRoot; if (state.kind === "invalid") return "verification failed"; if (state.kind === "verifying") return "checking…"; return "not checked"; }
 function short(value: string) { return value.length > 22 ? `${value.slice(0, 20)}…` : value; }
 function schemaSummary(tool: ToolDefinition) { const required = tool.inputSchema.required || []; return `${required.length ? required.join(", ") : "no required inputs"} · additional properties ${tool.inputSchema.additionalProperties === false ? "blocked" : "allowed"}`; }
+function effectSummary(effects: EvidenceEvent[]) { return effects.map((effect) => String(effect.kind).replaceAll("_", " ")).join(" → "); }
+function listOrAny(values: string[] | null) { return values?.length ? values.join(", ") : "unrestricted"; }
 function stateMessage(state: AuditState) { return ({ awaiting_approval: "Interface review required. No agent route has executed.", running: "Approved. The agent route is executing.", waiting_for_effects: "The tool returned. Arena is still watching delayed effects.", completed: "Audit complete.", failed: "Audit failed." })[state]; }
-function publicAudit(record: AuditRecord) { return { auditId: record.id, state: record.state, approvalExpiresAt: record.approvalExpiresAt, retentionUntil: record.retentionUntil, review: record.review, result: record.result }; }
+function agentAuditStatus(record: AuditRecord) {
+  const encodedAuditId = encodeURIComponent(record.id);
+  const status = {
+    auditId: record.id,
+    state: record.state,
+    nextAction: record.state === "awaiting_approval"
+      ? "review_and_approve_in_visible_interface"
+      : record.result
+        ? "verify_signed_proof"
+        : record.state === "failed"
+          ? "inspect_audit_record"
+          : "poll_status",
+    approval: {
+      required: record.state === "awaiting_approval",
+      method: "visible_interface_only",
+      expiresAt: record.approvalExpiresAt,
+    },
+    commitments: {
+      releaseHash: record.review.releaseHash,
+      toolName: record.review.toolName,
+      toolDefinitionHash: record.review.toolDefinitionHash,
+      argumentsHash: record.review.argumentsHash,
+      targetHash: record.review.targetHash,
+      contractHash: record.review.contractHash,
+      claimedAgentHash: record.review.agentHash,
+    },
+    evidence: {
+      retainedUntil: record.retentionUntil,
+      signedEvidenceUrl: `/api/audits?id=${encodedAuditId}`,
+      verificationUrl: `/api/audits/verify?id=${encodedAuditId}`,
+      visibleReviewUrl: "/#proof-title",
+    },
+  };
+  if (!record.result) return status;
+  return {
+    ...status,
+    outcome: {
+      verdict: record.result.verdict,
+      selectedToolVerdict: record.result.selectedToolVerdict,
+      routeParity: record.result.bundle.routeParity.status,
+      baselineSafety: record.result.bundle.baselineSafety.status,
+      effectSettlementComplete: record.result.display.settlement.complete,
+      findingCount: record.result.findings.length,
+      payloadHash: record.result.payloadHash,
+      signingKeyId: record.result.attestation.keyId,
+    },
+  };
+}
 function errorMessage(value: unknown) { return value instanceof Error ? value.message : "Unexpected audit error"; }
 async function requestJson<T>(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);

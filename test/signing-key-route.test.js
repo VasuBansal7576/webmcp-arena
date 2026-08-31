@@ -10,7 +10,7 @@ import {
 } from "../lib/evidence-signing.ts";
 import nextConfig from "../next.config.ts";
 
-test("the well-known rewrite exposes the same process-local development key used to sign evidence", async () => {
+test("hosted routes deny framing and the well-known rewrite exposes the evidence signing key", async () => {
   const previous = process.env.ARENA_ALLOW_EPHEMERAL_SIGNING;
   process.env.ARENA_ALLOW_EPHEMERAL_SIGNING = "true";
   try {
@@ -24,6 +24,17 @@ test("the well-known rewrite exposes the same process-local development key used
         source: "/.well-known/arena-signing-keys.json",
         destination: "/api/signing-keys",
       },
+    ]);
+    const securityHeaders = [
+      { key: "Content-Security-Policy", value: "base-uri 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'" },
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "Permissions-Policy", value: "camera=(), geolocation=(), microphone=(), payment=()" },
+    ];
+    assert.deepEqual(await nextConfig.headers?.(), [
+      { source: "/", headers: securityHeaders },
+      { source: "/:path*", headers: securityHeaders },
     ]);
 
     const evidence = { kind: "arena.route_test", version: 1 };

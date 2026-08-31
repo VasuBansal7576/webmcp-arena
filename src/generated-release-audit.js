@@ -4,6 +4,7 @@ import { createBoundaryAuditor } from "./boundary-audit.js";
 import { hashWebMcpToolDefinition } from "./webmcp-tool-definition.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const WEBMCP_TOOL_NAME = /^[A-Za-z0-9._-]{1,128}$/;
 const RELEASE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$/;
 const CAPABILITY = /^[A-Za-z0-9_-]{32,128}$/;
 
@@ -264,20 +265,19 @@ function normalizeArtifact(value) {
 }
 
 function normalizeTool(tool) {
-  rejectUnexpectedFields(tool, ["name", "title", "description", "inputSchema", "annotations", "origin"], "generated WebMCP tool");
-  if (typeof tool.name !== "string" || !SAFE_ID.test(tool.name)) throw new Error("generated WebMCP tool name is invalid");
+  rejectUnexpectedFields(tool, ["name", "title", "description", "inputSchema", "annotations"], "generated WebMCP tool");
+  if (typeof tool.name !== "string" || !WEBMCP_TOOL_NAME.test(tool.name)) throw new Error("generated WebMCP tool name is invalid");
   if (typeof tool.description !== "string" || !tool.description || tool.description.length > 4_000) {
     throw new Error("generated WebMCP tool description is invalid");
   }
   if (!isPlainObject(tool.inputSchema)) throw new Error("generated WebMCP tool inputSchema must be an object");
-  if (tool.annotations !== undefined && !isPlainObject(tool.annotations)) throw new Error("generated WebMCP tool annotations must be an object");
+  const annotations = normalizeToolAnnotations(tool.annotations);
   const normalized = {
     name: tool.name,
     title: tool.title == null ? null : String(tool.title),
     description: tool.description,
     inputSchema: JSON.parse(canonicalJson(tool.inputSchema)),
-    annotations: tool.annotations == null ? null : JSON.parse(canonicalJson(tool.annotations)),
-    origin: tool.origin == null ? null : String(tool.origin),
+    annotations,
   };
   canonicalJson(normalized);
   return normalized;
@@ -286,12 +286,27 @@ function normalizeTool(tool) {
 function normalizeAgent(agent) {
   rejectUnexpectedFields(agent, ["id", "toolName", "arguments"], "generated release agent intent");
   if (typeof agent.id !== "string" || !SAFE_ID.test(agent.id)) throw new Error("generated release agent id is invalid");
-  if (typeof agent.toolName !== "string" || !SAFE_ID.test(agent.toolName)) throw new Error("generated release tool name is invalid");
+  if (typeof agent.toolName !== "string" || !WEBMCP_TOOL_NAME.test(agent.toolName)) throw new Error("generated release tool name is invalid");
   if (!isPlainObject(agent.arguments)) throw new Error("generated release arguments must be an object");
   return deepFreeze({
     id: agent.id,
     toolName: agent.toolName,
     arguments: JSON.parse(canonicalJson(agent.arguments)),
+  });
+}
+
+function normalizeToolAnnotations(value) {
+  if (value == null) return null;
+  if (!isPlainObject(value)) throw new Error("generated WebMCP tool annotations must be an object");
+  rejectUnexpectedFields(value, ["readOnlyHint", "untrustedContentHint"], "generated WebMCP tool annotations");
+  for (const field of ["readOnlyHint", "untrustedContentHint"]) {
+    if (value[field] !== undefined && typeof value[field] !== "boolean") {
+      throw new Error(`generated WebMCP tool annotation ${field} must be a boolean`);
+    }
+  }
+  return deepFreeze({
+    readOnlyHint: value.readOnlyHint ?? false,
+    untrustedContentHint: value.untrustedContentHint ?? false,
   });
 }
 

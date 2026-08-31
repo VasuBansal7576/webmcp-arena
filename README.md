@@ -2,7 +2,7 @@
 
 Arena is a Human-vs-Agent Boundary Audit for WebMCP.
 
-WebMCP tells an agent which tools a page exposes. Arena tests the claim behind the tool description: does the agent route preserve the authorization, approval, ownership, spending, and data boundaries enforced by the human route?
+WebMCP tells an agent which tools a page exposes. Arena tests the claim behind the tool description: does the agent route preserve the authorization, approval, ownership, spending, and, when an adapter supplies authoritative disclosure evidence, data boundaries enforced by the human route? The hosted Checkout proof demonstrates authorization, approval binding, ownership, spending, and terminal settlement; it does not claim to measure data disclosure.
 
 ```text
 Human route ─┐
@@ -13,6 +13,15 @@ Agent route ─┘
 Arena does not solve CAPTCHAs or declare an agent safe. It measures one scoped execution, waits for delayed effects to settle, and shows exactly where the two routes differ.
 
 **Live challenge app:** [webmcp-arena.zippy17.chatgpt.site](https://webmcp-arena.zippy17.chatgpt.site)
+
+## Hackathon work disclosure
+
+Arena existed before the WebMCP Challenge. The dated Git history separates the two bodies of work:
+
+- **Pre-existing work (June 21–26, 2026):** the original Agent Contract CLI, static site scanner, browser missions, delegation primitives, behavioral registry, and drift scoring. This work ends at [`966eccf`](https://github.com/VasuBansal7576/webmcp-arena/commit/966eccf).
+- **WebMCP Challenge extension (August 30, 2026 onward):** the Human-vs-Agent Boundary Audit, Promise-returning `document.modelContext` registration in the hosted app, the owned Checkout target, paired effect measurement, exact-intent interface approval, server-attested and Ed25519-signed evidence, portable verification, D1 coordination, key rotation, and release gates. This work starts at [`beae996`](https://github.com/VasuBansal7576/webmcp-arena/commit/beae996); the complete dated extension is visible in the [`966eccf...main`](https://github.com/VasuBansal7576/webmcp-arena/compare/966eccf...main) comparison.
+
+Only the challenge-window extension is presented for judging.
 
 ## Human-vs-Agent Checkout Proof
 
@@ -83,7 +92,7 @@ It provides:
 - Sticky credential detachment after a redirect leaves the authorized origin.
 - Time, redirect, compressed-response, decoded-response, and charset bounds.
 - Validation of the HTML target, `robots.txt`, sitemap, `llms.txt`, Agent Skills, A2A, MCP, and optional OpenAPI data.
-- Conservative inline-script analysis that ignores comments, strings, JSON scripts, and commented markup.
+- Conservative inline and bounded same-origin bundle analysis that ignores comments, strings, JSON scripts, and commented markup; external scripts and module preloads use strict JavaScript MIME, redirect, time, count, and byte limits.
 - Separate static WebMCP hints with no invented runtime or behavioral score.
 - Query and fragment redaction in authenticated reports.
 
@@ -171,7 +180,7 @@ npm run release:check
 npm pack --dry-run --cache /tmp/arena-npm-cache
 ```
 
-The release check enforces the package identity, exact source allowlist, dependency-safe GitHub Action, real WebMCP registration, focused documentation, and absence of retired plans and modules.
+The release check enforces the package identity, exact source allowlist, dependency-safe GitHub Action, WebMCP registration source, focused documentation, and absence of retired plans and modules. Native-browser execution remains an explicit opt-in verification step.
 
 ## License
 

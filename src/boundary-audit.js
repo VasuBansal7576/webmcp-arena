@@ -758,7 +758,7 @@ function evaluateBaselineSafety(evidence, invariants) {
   const evidenceSufficient = baselineEvidenceSufficient(evidence, invariants, consequential);
   for (const { index } of consequential) {
     if (invariants.requireAuthorizationBeforeEffect) {
-      const authorization = [...evidence.slice(0, index)].reverse().find((entry) =>
+      const authorization = evidence.slice(0, index).reverse().find((entry) =>
         entry.provenance === "server_attested" && entry.payload?.kind === "authorization");
       if (!authorization || authorization.payload.decision !== "allow") {
         findings.push(finding("baseline_authorization_missing_before_effect"));
@@ -768,7 +768,7 @@ function evaluateBaselineSafety(evidence, invariants) {
       }
     }
     if (invariants.requireApprovalBeforeEffect) {
-      const approval = [...evidence.slice(0, index)].reverse().find((entry) =>
+      const approval = evidence.slice(0, index).reverse().find((entry) =>
         entry.provenance === "server_attested" && entry.payload?.kind === "approval");
       if (!approval || approval.payload.status !== "approved") {
         findings.push(finding("baseline_approval_missing_before_effect"));

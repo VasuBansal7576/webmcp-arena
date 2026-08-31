@@ -4,7 +4,6 @@ import {
   CHECKOUT_WEBMCP_TOOL,
   createCheckoutAuditAdapter,
 } from "./checkout-audit-adapter.js";
-import { CHECKOUT_CART_ID } from "./checkout-fixture.js";
 import { CHECKOUT_RELEASE_ARTIFACTS } from "./checkout-release-artifacts.js";
 import {
   createGeneratedReleaseAuditor,
@@ -92,6 +91,7 @@ const HOSTED_REVIEW_FIELDS = Object.freeze([
   "claimScope",
   "contractHash",
   "coverage",
+  "effects",
   "implementationVersion",
   "invariants",
   "principal",
@@ -414,6 +414,7 @@ export async function verifyHostedAuditEvidence(evidence) {
         boundary.contractHash !== review.contractHash || boundary.invocation?.toolName !== review.toolName ||
         boundary.invocation?.toolDefinitionHash !== review.toolDefinitionHash ||
         canonicalJson(boundary.invocation?.argumentKeys) !== canonicalJson(review.argumentKeys) ||
+        canonicalJson(boundary.contract?.effects) !== canonicalJson(review.effects) ||
         canonicalJson(boundary.contract?.invariants) !== canonicalJson(review.invariants) ||
         canonicalJson(boundary.baselineSafety) !== canonicalJson(review.baselineSafety)) {
       return invalidEvidence("boundary_exact_intent_mismatch");
@@ -563,6 +564,7 @@ function hostedReview(measured, version) {
     argumentsHash: measured.prepared.approvalBinding.argumentsHash,
     claimScope: measured.adapter.manifest.claimScope[0],
     contractHash: measured.prepared.contractHash,
+    effects: structuredClone(measured.prepared.proposedContract.effects),
     invariants: structuredClone(measured.prepared.proposedContract.invariants),
     baselineSafety: structuredClone(measured.prepared.baselineSafety),
     trustMode: measured.adapter.manifest.trustMode,
@@ -741,5 +743,3 @@ function bytesToBase64Url(bytes) {
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
-
-export const HOSTED_CHECKOUT_CART_ID = CHECKOUT_CART_ID;

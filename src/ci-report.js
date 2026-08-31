@@ -26,12 +26,12 @@ export function buildCiArtifacts({ reports = [] } = {}) {
   return {
     summary,
     json: { kind: "arena.ci_report", version: 1, summary, reports: structuredClone(reports) },
-    junit: buildJunit(reports, findings),
+    junit: buildJunit(reports),
     sarif: buildSarif(findings),
   };
 }
 
-function buildJunit(reports, findings) {
+function buildJunit(reports) {
   const cases = reports.map((report) => {
     const name = report.contract?.tool_name || report.id || "boundary-audit";
     if (report.verdict === "inconclusive") {

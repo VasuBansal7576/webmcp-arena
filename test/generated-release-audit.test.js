@@ -178,8 +178,7 @@ test("one selected-tool audit cannot certify an otherwise unaudited multi-tool r
     title: "Place order",
     description: "Place and charge an order.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
-    annotations: { readOnlyHint: false, destructiveHint: true },
-    origin: null,
+    annotations: { readOnlyHint: false, untrustedContentHint: false },
   };
   const prepared = await auditor.prepare({
     release: { ...generatedRelease(), tools: [CHECKOUT_WEBMCP_TOOL, unauditedTool] },
@@ -265,6 +264,49 @@ test("the release hash binds a required immutable implementation artifact", asyn
     () => hashGeneratedRelease({ ...release, artifact: undefined }),
     /generated release artifact/,
   );
+});
+
+test("generated releases enforce the current WebMCP name and annotation grammar", () => {
+  const release = generatedRelease();
+  assert.throws(
+    () => hashGeneratedRelease({
+      ...release,
+      tools: [{ ...CHECKOUT_WEBMCP_TOOL, name: "invalid:tool" }],
+    }),
+    /tool name is invalid/,
+  );
+  assert.throws(
+    () => hashGeneratedRelease({
+      ...release,
+      tools: [{ ...CHECKOUT_WEBMCP_TOOL, name: "a".repeat(129) }],
+    }),
+    /tool name is invalid/,
+  );
+  assert.throws(
+    () => hashGeneratedRelease({
+      ...release,
+      tools: [{
+        ...CHECKOUT_WEBMCP_TOOL,
+        annotations: { readOnlyHint: true, destructiveHint: false },
+      }],
+    }),
+    /unsupported generated WebMCP tool annotations field: destructiveHint/,
+  );
+  assert.throws(
+    () => hashGeneratedRelease({
+      ...release,
+      tools: [{ ...CHECKOUT_WEBMCP_TOOL, annotations: { readOnlyHint: "yes" } }],
+    }),
+    /readOnlyHint must be a boolean/,
+  );
+  assert.doesNotThrow(() => hashGeneratedRelease({
+    ...release,
+    tools: [{
+      ...CHECKOUT_WEBMCP_TOOL,
+      name: "valid.tool-name_1",
+      annotations: { readOnlyHint: true, untrustedContentHint: false },
+    }],
+  }));
 });
 
 function generatedRelease() {

@@ -27,14 +27,16 @@ test("runReleaseCheck accepts the current Arena release contract", async (t) => 
       "start_script",
       "release_script",
       "arena_script",
-      "webmcp_registration",
+      "webmcp_registration_source",
       "action_uses_arena",
       "action_runtime_safe",
       "hosted_d1_schema_authority",
       "hosted_signing_key_rotation",
+      "hosted_security_headers",
       "github_action_example",
       "ci_workflow",
       "release_documents",
+      "hackathon_work_disclosure",
       "obsolete_docs_absent",
       "dead_guard_absent",
     ],
@@ -149,7 +151,7 @@ async function createReleaseFixture() {
   const root = await mkdtemp(join(tmpdir(), "arena-release-"));
   const pkg = {
     name: "webmcp-arena",
-    version: "0.2.0",
+    version: "0.3.0",
     license: "MIT",
     repository: { type: "git", url: "git+https://github.com/VasuBansal7576/webmcp-arena.git" },
     homepage: "https://github.com/VasuBansal7576/webmcp-arena#readme",
@@ -192,6 +194,10 @@ async function createReleaseFixture() {
     "",
     "## Current limitations",
     "",
+    "## Hackathon work disclosure",
+    "",
+    "Pre-existing work through commit 966eccf. WebMCP Challenge extension starts at commit beae996.",
+    "",
   ].join("\n"));
   await write(root, "CONTRIBUTING.md", "# Contributing\n\nRequire the exact contract hash. Run `npm test` and `npm run release:check`.\n");
   await write(root, "LICENSE", "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n");
@@ -200,7 +206,7 @@ async function createReleaseFixture() {
   await write(root, "scripts/arena-server.js", "export {};\n");
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
   await write(root, "scripts/release-check.js", "export {};\n");
-  await write(root, "examples/github-action.yml", "name: Arena\nuses: VasuBansal7576/webmcp-arena@v0.2.0\nif: always()\n");
+  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.3.0\nif: always()\n");
   await write(root, ".github/workflows/ci.yml", [
     "name: CI",
     "uses: actions/checkout@v7",
@@ -208,6 +214,7 @@ async function createReleaseFixture() {
     "node-version: 22",
     "run: npm ci",
     "run: npm test",
+    "run: npm run lint",
     "run: npm run release:check",
     "run: npx tsc --noEmit --incremental false",
     "run: npm run build:site",
@@ -216,9 +223,20 @@ async function createReleaseFixture() {
     "",
   ].join("\n"));
   await write(root, "src/arena-page.js", "document.modelContext.registerTool({ name: 'inspect_boundary_bundle' });\n");
+  await write(root, "app/page.tsx", "document.modelContext.registerTool({ name: 'start_generated_release_audit' });\n");
   await write(root, "src/release.js", "export {};\n");
   await write(root, "db/runtime.ts", "export function createAuditDatabaseProvider() {}\nconst PURGE_INCOMPATIBLE_AUDITS_SQL = \"json_type(payload, '$.retentionUntil') IS NOT 'text'\";\n");
-  await write(root, "next.config.ts", 'source: "/.well-known/arena-signing-keys.json"\n');
+  await write(root, "next.config.ts", [
+    'source: "/.well-known/arena-signing-keys.json"',
+    'source: "/"',
+    'source: "/:path*"',
+    "frame-ancestors 'none'",
+    '{ key: "X-Frame-Options", value: "DENY" }',
+    '{ key: "X-Content-Type-Options", value: "nosniff" }',
+    '{ key: "Referrer-Policy", value: "no-referrer" }',
+    "camera=(), geolocation=(), microphone=(), payment=()",
+    "",
+  ].join("\n"));
   return root;
 }
 

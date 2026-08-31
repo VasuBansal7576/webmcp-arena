@@ -8,8 +8,8 @@ jobs:
   preflight:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: VasuBansal7576/webmcp-arena@v0.2.0
+      - uses: actions/checkout@v7
+      - uses: VasuBansal7576/webmcp-arena@v0.3.0
         with:
           url: https://example.com
           report: arena-webmcp-preflight.json

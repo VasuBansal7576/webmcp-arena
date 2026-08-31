@@ -246,7 +246,7 @@ async function createNativeCdpRuntime(context, page, { timeoutMs }) {
   };
   return {
     channel: "cdp_webmcp_domain",
-    getTools: async () => getBrowserTools().map(({ frameId, ...tool }) => structuredClone(tool)),
+    getTools: async () => getBrowserTools().map(({ frameId: _frameId, ...tool }) => structuredClone(tool)),
     async execute(toolName, input) {
       const matches = getBrowserTools().filter((tool) => tool.name === toolName);
       if (matches.length !== 1) {

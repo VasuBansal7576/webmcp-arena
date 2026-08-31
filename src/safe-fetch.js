@@ -12,6 +12,7 @@ const FORBIDDEN_HEADERS = new Set(["host", "content-length", "connection", "tran
 
 export async function fetchTextSafely(input, options = {}) {
   const requested = await allowedTarget(input, options);
+  const redirectOrigin = options.sameOriginRedirectsOnly === true ? requested.url.origin : null;
   const authOrigin = authorizedOrigin(options.authOrigin || requested.url.origin);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error("request timed out")), options.timeoutMs ?? 15_000);
@@ -48,7 +49,11 @@ export async function fetchTextSafely(input, options = {}) {
       const location = normalized.headers.location;
       if (!location) throw new Error("redirect response is missing a Location header");
       if (redirects === maxRedirects) throw new Error("redirect limit exceeded");
-      const next = await allowedTarget(new URL(location, current.url), options);
+      const redirectTarget = new URL(location, current.url);
+      if (redirectOrigin && redirectTarget.origin !== redirectOrigin) {
+        throw new Error("redirect target leaves the requested origin");
+      }
+      const next = await allowedTarget(redirectTarget, options);
       if (next.url.origin !== current.url.origin) credentialsDetached = true;
       current = next;
     }

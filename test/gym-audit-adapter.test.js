@@ -74,7 +74,6 @@ function fixtureBrowserRunner() {
     annotations: { readOnlyHint: false, untrustedContentHint: false },
     origin: null,
   };
-  const definitionHash = hashWebMcpToolDefinition(definition);
   const trialIds = [];
 
   return {
