@@ -151,7 +151,7 @@ async function createReleaseFixture() {
   const root = await mkdtemp(join(tmpdir(), "arena-release-"));
   const pkg = {
     name: "webmcp-arena",
-    version: "0.3.2",
+    version: "0.4.0",
     license: "MIT",
     repository: { type: "git", url: "git+https://github.com/VasuBansal7576/webmcp-arena.git" },
     homepage: "https://github.com/VasuBansal7576/webmcp-arena#readme",
@@ -169,6 +169,8 @@ async function createReleaseFixture() {
       "scripts/arena-server.js",
       "scripts/release-check.js",
       "scripts/verify-webmcp-native.js",
+      "lib/evidence-signing.ts",
+      "lib/portable-proof.ts",
       ...releaseSources(),
     ],
     scripts: {
@@ -201,12 +203,12 @@ async function createReleaseFixture() {
   ].join("\n"));
   await write(root, "CONTRIBUTING.md", "# Contributing\n\nRequire the exact contract hash. Run `npm test` and `npm run release:check`.\n");
   await write(root, "LICENSE", "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n");
-  await write(root, "action.yml", 'Arena WebMCP Preflight bin/arena.js preflight actions/setup-node@v7 node-version: "22" npm ci --ignore-scripts --omit=dev set -euo pipefail ARENA_INPUT_URL\n');
+  await write(root, "action.yml", 'Arena WebMCP Boundary Gate bin/arena.js preflight verify actions/setup-node@v7 node-version: "22" npm ci --ignore-scripts --omit=dev set -euo pipefail ARENA_INPUT_URL\n');
   await write(root, "bin/arena.js", "#!/usr/bin/env node\n");
   await write(root, "scripts/arena-server.js", "export {};\n");
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
   await write(root, "scripts/release-check.js", "export {};\n");
-  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.3.2\nif: always()\n");
+  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.4.0\nif: always()\n");
   await write(root, ".github/workflows/ci.yml", [
     "name: CI",
     "uses: actions/checkout@v7",
@@ -246,9 +248,9 @@ function releaseSources() {
     "src/arena-config.js", "src/arena-page.js", "src/arena-proof.js", "src/behavioral-verifier.js",
     "src/boundary-audit.js", "src/checkout-audit-adapter.js", "src/checkout-fixture.js", "src/checkout-release-artifacts.js", "src/ci-report.js",
     "src/effect-settlement.js", "src/generated-release-audit.js", "src/gym-audit-adapter.js", "src/gym-fixture.js", "src/identity.js",
-    "src/incident-lab.js", "src/mcp.js", "src/measured-audit-service.js", "src/passkey-authenticator.js",
+    "src/hosted-audit.js", "src/incident-lab.js", "src/mcp.js", "src/measured-audit-service.js", "src/passkey-authenticator.js", "src/proof-gate.js",
     "src/release.js", "src/safe-fetch.js", "src/scanner.js", "src/secret-envelope.js", "src/skills.js",
-    "src/state-store.js", "src/trust.js", "src/util.js", "src/webmcp-tool-definition.js", "src/webmcp-runner.js",
+    "src/state-store.js", "src/trust.js", "src/util.js", "src/webmcp-invocation.js", "src/webmcp-tool-definition.js", "src/webmcp-runner.js",
   ];
 }
 

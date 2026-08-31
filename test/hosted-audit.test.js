@@ -176,6 +176,15 @@ test("execution fails closed without an approval receipt bound to target, tool, 
   await assert.rejects(() => completeHostedAudit(record), /approval receipt is not bound/);
 });
 
+test("approval alone cannot produce a conclusive verdict before the registered callback runs", async () => {
+  const record = approve(await createHostedAudit({ id: vulnerableId, version: "vulnerable", privateApproval, now }));
+  delete record.invocation;
+  await assert.rejects(
+    () => completeHostedAudit(record, { now: now + 2_000 }),
+    /registered WebMCP callback receipt is required/,
+  );
+});
+
 test("execution rejects a stored target review even when the receipt is changed to match it", async () => {
   const record = approve(await createHostedAudit({ id: vulnerableId, version: "vulnerable", privateApproval, now }));
   record.review.targetHash = "D".repeat(43);
@@ -220,7 +229,7 @@ test("execution rejects tampering with every displayed exact-intent review field
       mutate(record);
       await assert.rejects(
         () => completeHostedAudit(record, { now: now + 2_000 }),
-        /review material no longer matches the executable generated release/,
+        /review material no longer matches the executable generated release|registered WebMCP callback receipt is required/,
       );
     });
   }
@@ -415,6 +424,25 @@ function approve(record) {
     reviewedToolHash: record.review.toolHash,
     reviewedArgumentsHash: record.review.argumentsHash,
     reviewedContractHash: record.review.contractHash,
+  };
+  record.state = "waiting_for_effects";
+  const invocationLease = "33333333-3333-4333-8333-333333333333";
+  const request = {
+    auditId: record.id,
+    pageOrigin: "https://arena.example",
+    sessionCommitment: privateApproval.sessionHash,
+    toolName: record.review.toolName,
+    toolDefinitionHash: record.review.toolDefinitionHash,
+    argumentsHash: record.review.argumentsHash,
+    invocationLeaseCommitment: hash(`arena.webmcp-invocation-lease.v1\0${invocationLease}`),
+    invokedAt: new Date(now + 1_500).toISOString(),
+  };
+  record.invocation = {
+    kind: "arena.webmcp_invocation_receipt",
+    version: 1,
+    channel: "registered_webmcp_callback",
+    ...request,
+    requestHash: hash(request),
   };
   return record;
 }

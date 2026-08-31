@@ -30,16 +30,18 @@ The main demo uses an owned Checkout fixture with two server-controlled implemen
 - `vulnerable`: `preview_checkout` returns a quote, then schedules a hidden $149 charge.
 - `fixed`: the same tool returns the quote and requires confirmation, matching the human route.
 
-The workflow is intentionally split:
+The hosted workflow joins the actual registered callback to the signed evidence:
 
 1. An agent or human starts a server-owned preset.
 2. Arena records the human baseline and prepares an exact contract.
 3. The interface shows the target, tool, arguments, contract hash, invariants, and assurance tier.
 4. The reviewer approves through a protected interface route carrying a one-time capability bound to that browser session and exact contract. No WebMCP approval tool exists.
-5. Arena runs the agent route, waits for a terminal effect-settlement watermark, and records the final backend state.
-6. The workbench verifies and displays the signed evidence bundle.
+5. Approval returns immediately with a short-lived, single-use invocation lease and Arena dynamically registers the exact reviewed candidate tool.
+6. The agent invokes that registered callback. Requests without the lease, session, reviewed tool definition, and exact argument commitment fail closed.
+7. Arena joins the callback result to the terminal backend trace, observes delayed effects, and signs the evidence bundle.
+8. The workbench independently verifies and displays the proof.
 
-Caller-authored recipes, routes, traces, evidence, and approval claims are rejected. The reviewer can be a human or an authorized browser agent. This hosted proof measures Arena's owned server-attested route adapter; it does not claim that the target execution traversed a browser's native WebMCP channel. Cryptographic human presence is a separate, optional assurance tier.
+Caller-authored recipes, routes, traces, evidence, and approval claims are rejected. The reviewer can be a human or an authorized browser agent. The hosted proof establishes that Arena's registered page callback consumed the reviewed lease and that its result was joined to server-attested effects. It does not yet cryptographically prove browser provenance or external agent-vendor identity. Cryptographic human presence is a separate, optional assurance tier.
 
 ## Run locally
 
@@ -62,12 +64,12 @@ npm run start:site -- --port 4174
 
 Open `http://127.0.0.1:4174`. The local hosted command explicitly enables one process-local signing identity for development, including public-key discovery and proof verification; it resets when the process restarts. Production fails closed and uses a configured Ed25519 key pair.
 
-The hosted challenge application registers exactly two tools through the Promise-returning `document.modelContext.registerTool(...)` API:
+The hosted challenge application always registers two control tools through the Promise-returning `document.modelContext.registerTool(...)` API:
 
 - `start_generated_release_audit`
 - `get_generated_release_audit_status`
 
-The start tool prepares a server-owned, standards-shaped generated WebMCP manifest for visible exact-intent review. Arena binds the release, transitive owned-execution-stack artifact digest, claimed agent, tool definition, arguments, target, contract, browser session, nonce, and expiry before it executes the owned human and agent route adapter. The status tool is read-only. Neither tool can approve or execute a consequential route. `/checkout` separately registers `preview_checkout` on `document.modelContext` and labels its page-observed channel only as a registered WebMCP tool call. That page is an unsigned interactive standards demo and is never substituted for the server-attested evidence.
+The start tool prepares a server-owned generated WebMCP manifest for visible exact-intent review. The status tool is read-only. Neither can approve a consequential route. After visible approval, Arena dynamically registers the reviewed candidate—`preview_checkout` in the included release—and its callback is the only public path to conclusive hosted evidence. The callback receipt commits to the page origin, session, tool definition, arguments, invocation lease, result, backend trace root, and chronology.
 
 Completed hosted evidence is checked twice: a pure semantic verifier recomputes its release, target, account, agent, tool, argument, contract, coverage, and authorization-probe bindings, then Ed25519 verification resolves the signed key ID against the deployment trust set published at `/.well-known/arena-signing-keys.json`. The embedded public key is never treated as its own trust root. The singular `/.well-known/arena-signing-key.json` endpoint remains available for current-key compatibility, but portable proofs use the versioned trust set.
 
@@ -99,6 +101,19 @@ It provides:
 Static preflight can identify candidates. It cannot prove runtime registration, successful execution, or safety.
 
 The repository also contains a composite GitHub Action; see `examples/github-action.yml`.
+
+## Developer quickstart and docs
+
+```bash
+npm install --save-dev github:VasuBansal7576/webmcp-arena#v0.4.0
+npx arena --help
+npx arena init
+npx arena verify arena-proof.json --require pass
+```
+
+`arena init` creates an explicit config, a typed document-sharing adapter scaffold, and a pull-request proof gate without overwriting existing files. The composite Action supports both bounded static preflight and signed behavioral proof mode with SARIF upload.
+
+Human documentation lives at [the Arena docs site](https://webmcp-arena.zippy17.chatgpt.site/docs). Agents can use [`llms.txt`](https://webmcp-arena.zippy17.chatgpt.site/llms.txt), [`llms-full.txt`](https://webmcp-arena.zippy17.chatgpt.site/llms-full.txt), the [JSON docs index](https://webmcp-arena.zippy17.chatgpt.site/api/docs), and the [portable-proof schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json).
 
 ## Browser-backed owned-target test
 

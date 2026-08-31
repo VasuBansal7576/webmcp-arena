@@ -1,0 +1,22 @@
+# Arena
+
+> Behavioral release evidence for WebMCP tools. Arena compares the security outcome of human and agent routes, observes settled authoritative effects, and signs a portable verdict.
+
+## Start
+
+- [Quickstart](https://webmcp-arena.zippy17.chatgpt.site/docs/quickstart): Initialize an adapter and gate a proof.
+- [Human–agent boundary](https://webmcp-arena.zippy17.chatgpt.site/docs/concepts/human-agent-boundary): Trust model and claim limits.
+- [WebMCP tools](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/webmcp-tools): Hosted tool lifecycle and compact agent responses.
+- [Proof format](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/proof-format): Portable envelope, callback receipt, and verification order.
+- [Error codes](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/error-codes): Stable codes and retry behavior.
+
+## Machine interfaces
+
+- [Documentation index](https://webmcp-arena.zippy17.chatgpt.site/api/docs)
+- [Proof JSON Schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json)
+- [Full agent context](https://webmcp-arena.zippy17.chatgpt.site/llms-full.txt)
+- [Signing keys](https://webmcp-arena.zippy17.chatgpt.site/.well-known/arena-signing-keys.json)
+
+## Critical rule
+
+Static discovery is preflight evidence only. A conclusive hosted verdict requires visible exact-intent approval, a registered WebMCP callback invocation, authoritative effect settlement, semantic verification, and an Ed25519 signature.

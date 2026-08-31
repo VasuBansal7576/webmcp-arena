@@ -1,0 +1,8 @@
+import { CodeBlock, DocsShell } from "@/components/docs-shell";
+
+export default function ToolsReference() { return <DocsShell eyebrow="Reference" title="Hosted WebMCP tools." description="Arena keeps preparation, human approval, candidate invocation, and proof verification separate so an agent cannot silently approve its own consequential action."><h2>start_generated_release_audit</h2><p>Prepares an owned Checkout release. Returns a compact record with absolute review and evidence links. It never approves or executes the candidate.</p><CodeBlock>{`input: { version?: "vulnerable" | "fixed", idempotencyKey?: string }
+nextAction: "review_and_approve_in_visible_interface"`}</CodeBlock><h2>get_generated_release_audit_status</h2><p>Read-only polling. Responses include <code>nextAction</code>, <code>retryAfterMs</code>, commitments, and absolute URLs. Full evidence stays behind the linked endpoint to keep tool results compact.</p><h2>Dynamically registered candidate</h2><p>After visible approval, Arena registers the exact reviewed tool definition. The callback holds a single-use invocation lease, submits the reviewed arguments, and returns only after authoritative effects settle and the proof is signed.</p><CodeBlock>{`await document.modelContext.registerTool({
+  name: "preview_checkout",
+  inputSchema: { /* reviewed schema */ },
+  execute: ({ cartId }, { signal }) => invokeReviewedTool(cartId, signal)
+}, { signal: lifecycle.signal });`}</CodeBlock><h2>Lifecycle</h2><ol><li><code>awaiting_approval</code></li><li><code>awaiting_webmcp_invocation</code></li><li><code>waiting_for_effects</code></li><li><code>completed</code> or <code>failed</code></li></ol></DocsShell>; }

@@ -1,9 +1,14 @@
-name: "Arena WebMCP Preflight"
-description: "Run Arena's bounded static WebMCP preflight before a measured boundary audit."
+name: "Arena WebMCP Boundary Gate"
+description: "Run bounded WebMCP preflight or enforce a signed behavioral boundary proof."
 inputs:
+  mode:
+    description: "preflight or proof"
+    required: false
+    default: "preflight"
   url:
     description: "Public HTTP(S) page to inspect."
-    required: true
+    required: false
+    default: ""
   mcp:
     description: "Optional MCP manifest URL or path."
     required: false
@@ -16,6 +21,18 @@ inputs:
     description: "JSON report path."
     required: false
     default: "arena-webmcp-preflight.json"
+  proof:
+    description: "Portable signed Arena proof to verify when mode is proof."
+    required: false
+    default: "arena-proof.json"
+  require:
+    description: "Required signed verdict when mode is proof."
+    required: false
+    default: "pass"
+  sarif:
+    description: "SARIF report path for proof mode."
+    required: false
+    default: "arena-boundary-proof.sarif"
 runs:
   using: "composite"
   steps:
@@ -27,6 +44,7 @@ runs:
       shell: bash
       run: npm ci --ignore-scripts --omit=dev --prefix "$GITHUB_ACTION_PATH"
     - name: Run Arena preflight
+      if: inputs.mode == 'preflight'
       shell: bash
       env:
         ARENA_INPUT_URL: ${{ inputs.url }}
@@ -39,3 +57,37 @@ runs:
         if [ -n "$ARENA_INPUT_MCP" ]; then args+=("--mcp" "$ARENA_INPUT_MCP"); fi
         if [ -n "$ARENA_INPUT_OPENAPI" ]; then args+=("--openapi" "$ARENA_INPUT_OPENAPI"); fi
         node "$GITHUB_ACTION_PATH/bin/arena.js" preflight "${args[@]}" | tee "$ARENA_INPUT_REPORT"
+    - name: Enforce signed behavioral proof
+      if: inputs.mode == 'proof'
+      shell: bash
+      env:
+        ARENA_INPUT_PROOF: ${{ inputs.proof }}
+        ARENA_INPUT_REQUIRE: ${{ inputs.require }}
+        ARENA_INPUT_REPORT: ${{ inputs.report }}
+        ARENA_INPUT_SARIF: ${{ inputs.sarif }}
+      run: |
+        set -euo pipefail
+        set +e
+        node "$GITHUB_ACTION_PATH/bin/arena.js" verify "$ARENA_INPUT_PROOF" --require "$ARENA_INPUT_REQUIRE" --format sarif > "$ARENA_INPUT_SARIF"
+        sarif_status=$?
+        node "$GITHUB_ACTION_PATH/bin/arena.js" verify "$ARENA_INPUT_PROOF" --require "$ARENA_INPUT_REQUIRE" | tee "$ARENA_INPUT_REPORT"
+        report_status=${PIPESTATUS[0]}
+        set -e
+        if [ "$sarif_status" -ne "$report_status" ]; then
+          echo "Arena verifier formats disagreed on the gate result." >&2
+          exit 2
+        fi
+        exit "$report_status"
+    - name: Reject unsupported mode
+      if: inputs.mode != 'preflight' && inputs.mode != 'proof'
+      shell: bash
+      env:
+        ARENA_INPUT_MODE: ${{ inputs.mode }}
+      run: |
+        echo "Unsupported Arena mode: $ARENA_INPUT_MODE. Use preflight or proof." >&2
+        exit 2
+    - name: Upload Arena SARIF
+      if: inputs.mode == 'proof' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ inputs.sarif }}

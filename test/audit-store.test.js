@@ -5,6 +5,7 @@ import test from "node:test";
 import { createAuditStore } from "../src/audit-store-core.js";
 import { admitAuditStart } from "../src/audit-capability.js";
 import { completeHostedAudit, createHostedAudit } from "../src/hosted-audit.js";
+import { createWebMcpInvocationReceipt } from "../src/webmcp-invocation.js";
 
 const NOW = Date.parse("2026-08-30T12:00:00.000Z");
 const HASHES = Object.freeze({
@@ -68,7 +69,55 @@ test("only one concurrent request can consume an approval capability", async (t)
   ]);
 
   assert.deepEqual(claims.map(({ status }) => status).sort(), ["claimed", "conflict"]);
-  assert.equal((await store.loadAudit(record.id)).history.filter(({ state }) => state === "running").length, 1);
+  assert.equal((await store.loadAudit(record.id)).history.filter(({ state }) => state === "awaiting_webmcp_invocation").length, 1);
+});
+
+test("only the exact session-bound callback lease can claim an approved invocation", async (t) => {
+  const { store } = testStore(t);
+  const record = auditRecord({ id: auditId(20) });
+  record.review.toolName = "preview_checkout";
+  await store.insertAudit(record, "callback-claim-test");
+  const approval = await store.claimApproval({
+    id: record.id,
+    now: NOW + 1,
+    proof: { capabilityHash: HASHES.capabilityHash, sessionHash: HASHES.sessionHash },
+  });
+  assert.equal(approval.status, "claimed");
+  const receipt = await createWebMcpInvocationReceipt({
+    auditId: record.id,
+    review: approval.record.review,
+    approval: approval.record.approval,
+    pageOrigin: "https://arena.example",
+    invocationLease: approval.leaseId,
+    invokedAt: new Date(NOW + 2).toISOString(),
+  });
+
+  const wrongLease = await store.claimInvocation({
+    id: record.id,
+    now: NOW + 2,
+    leaseId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    sessionHash: HASHES.sessionHash,
+    receipt,
+  });
+  assert.equal(wrongLease.status, "invalid");
+  const wrongSession = await store.claimInvocation({
+    id: record.id,
+    now: NOW + 2,
+    leaseId: approval.leaseId,
+    sessionHash: "X".repeat(43),
+    receipt,
+  });
+  assert.equal(wrongSession.status, "invalid");
+
+  const claims = await Promise.all([
+    store.claimInvocation({ id: record.id, now: NOW + 3, leaseId: approval.leaseId, sessionHash: HASHES.sessionHash, receipt }),
+    store.claimInvocation({ id: record.id, now: NOW + 3, leaseId: approval.leaseId, sessionHash: HASHES.sessionHash, receipt }),
+  ]);
+  assert.deepEqual(claims.map(({ status }) => status).sort(), ["claimed", "conflict"]);
+  const claimed = claims.find(({ status }) => status === "claimed");
+  assert.equal(claimed.record.state, "waiting_for_effects");
+  assert.deepEqual(claimed.record.invocation, receipt);
+  assert.equal((await store.loadAudit(record.id)).history.at(-1).state, "waiting_for_effects");
 });
 
 test("the database claim binds the browser session as well as the capability", async (t) => {
@@ -140,8 +189,8 @@ test("an atomically claimed hosted audit can execute the isolated checkout fixtu
     proof: { capabilityHash: privateApproval.capabilityHash, sessionHash: privateApproval.sessionHash },
   });
   assert.equal(claim.status, "claimed");
-
-  const result = await completeHostedAudit(claim.record, { now: NOW + 2 });
+  const invocation = await claimHostedInvocation(store, claim, NOW + 2);
+  const result = await completeHostedAudit(invocation.record, { now: NOW + 3 });
   assert.equal(result.verdict, "pass");
   assert.equal(result.approval.nonceId, privateApproval.nonceId);
 });
@@ -163,12 +212,13 @@ test("saving completed evidence atomically synchronizes its full retention deadl
   assert.equal(claim.status, "claimed");
 
   const completionAt = NOW + 2_000;
-  const result = await completeHostedAudit(claim.record, { now: completionAt });
-  claim.record.state = "completed";
-  claim.record.updatedAt = new Date(completionAt).toISOString();
-  claim.record.result = result;
-  await store.saveAudit(claim.record, {
-    expectedState: "running",
+  const invocation = await claimHostedInvocation(store, claim, NOW + 2);
+  const result = await completeHostedAudit(invocation.record, { now: completionAt });
+  invocation.record.state = "completed";
+  invocation.record.updatedAt = new Date(completionAt).toISOString();
+  invocation.record.result = result;
+  await store.saveAudit(invocation.record, {
+    expectedState: "waiting_for_effects",
     leaseId: claim.leaseId,
     releaseLease: true,
   });
@@ -476,4 +526,24 @@ function auditId(value) {
 async function testDigest(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Buffer.from(digest).toString("base64url");
+}
+
+async function claimHostedInvocation(store, approval, invokedAt) {
+  const receipt = await createWebMcpInvocationReceipt({
+    auditId: approval.record.id,
+    review: approval.record.review,
+    approval: approval.record.approval,
+    pageOrigin: "https://arena.example",
+    invocationLease: approval.leaseId,
+    invokedAt: new Date(invokedAt).toISOString(),
+  });
+  const claimed = await store.claimInvocation({
+    id: approval.record.id,
+    now: invokedAt,
+    leaseId: approval.leaseId,
+    sessionHash: approval.record.approval.sessionCommitment,
+    receipt,
+  });
+  assert.equal(claimed.status, "claimed");
+  return claimed;
 }

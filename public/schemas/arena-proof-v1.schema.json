@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json",
+  "title": "Arena portable hosted audit proof",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "version", "auditId", "approvalExpiresAt", "retentionUntil", "evidence", "payloadHash", "attestation", "trustRoot"],
+  "properties": {
+    "kind": { "const": "arena.portable_hosted_audit_proof" },
+    "version": { "const": 1 },
+    "auditId": { "type": "string", "format": "uuid" },
+    "approvalExpiresAt": { "type": "string", "format": "date-time" },
+    "retentionUntil": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "type": "object",
+      "required": ["kind", "version", "auditId", "invocationReceipt", "releaseVerdict", "boundaryBundle"],
+      "properties": {
+        "kind": { "const": "arena.hosted_boundary_evidence" },
+        "version": { "const": 2 },
+        "auditId": { "type": "string" },
+        "invocationReceipt": {
+          "type": "object",
+          "required": ["channel", "pageOrigin", "toolDefinitionHash", "argumentsHash", "requestHash", "resultHash", "backendTraceRoot"],
+          "properties": { "channel": { "const": "registered_webmcp_callback" } }
+        },
+        "releaseVerdict": { "enum": ["pass", "fail", "inconclusive"] },
+        "boundaryBundle": { "type": "object" }
+      }
+    },
+    "payloadHash": { "type": "string", "pattern": "^[A-Za-z0-9_-]{43}$" },
+    "attestation": { "type": "object" },
+    "trustRoot": { "type": "string", "format": "uri" }
+  }
+}

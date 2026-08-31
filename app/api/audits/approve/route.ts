@@ -1,11 +1,10 @@
-import { completeHostedAudit, publicHostedAudit } from "@/src/hosted-audit.js";
+import { publicHostedAudit } from "@/src/hosted-audit.js";
 import {
   approvalCapabilityProof,
   auditSessionFromRequest,
   sameOriginMutation,
 } from "@/src/audit-capability.js";
-import { claimApproval, saveAudit } from "@/lib/audit-store";
-import { signEvidence } from "@/lib/evidence-signing";
+import { claimApproval } from "@/lib/audit-store";
 
 export const runtime = "edge";
 
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
   const claimed = await claimApproval({ id: auditId, now: Date.now(), proof });
   if (claimed.status === "missing") return Response.json({ error: "audit not found" }, { status: 404 });
   if (claimed.status === "expired") return Response.json({ error: "review window expired; start a new audit" }, { status: 410 });
-  if (claimed.status === "completed") return noStore(await publicHostedAudit(claimed.record));
+  if (claimed.status === "completed") return noStore({ audit: await publicHostedAudit(claimed.record), invocationLease: null });
   if (claimed.status === "invalid") {
     return Response.json({ error: "approval capability is invalid or belongs to another browser session" }, { status: 403 });
   }
@@ -45,37 +44,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "audit is already running or was already reviewed" }, { status: 409 });
   }
 
-  const record = claimed.record;
-  const leaseId = claimed.leaseId;
-  let persistedState = "running";
-  try {
-    record.state = "waiting_for_effects";
-    record.updatedAt = new Date().toISOString();
-    record.history = [...record.history, { state: "waiting_for_effects", at: record.updatedAt }];
-    await saveAudit(record, { expectedState: "running", leaseId });
-    persistedState = "waiting_for_effects";
-
-    const evidenceGeneratedAt = new Date();
-    const result = await completeHostedAudit(record, { now: evidenceGeneratedAt.getTime() });
-    const attestation = await signEvidence(result.evidence, result.payloadHash, evidenceGeneratedAt);
-    record.state = "completed";
-    record.result = { ...result, attestation };
-    record.updatedAt = new Date().toISOString();
-    record.history = [...record.history, { state: "completed", at: record.updatedAt }];
-    await saveAudit(record, { expectedState: "waiting_for_effects", leaseId, releaseLease: true });
-    return noStore(await publicHostedAudit(record));
-  } catch (error) {
-    console.error("Arena audit execution failed", error);
-    record.state = "failed";
-    record.updatedAt = new Date().toISOString();
-    record.history = [...record.history, { state: "failed", at: record.updatedAt }];
-    try {
-      await saveAudit(record, { expectedState: persistedState, leaseId, releaseLease: true });
-    } catch (saveError) {
-      console.error("Arena could not persist the failed audit state", saveError);
-    }
-    return Response.json({ error: "Arena could not produce a signed evidence bundle" }, { status: 500, headers: { "cache-control": "no-store" } });
-  }
+  return noStore({
+    audit: await publicHostedAudit(claimed.record),
+    invocationLease: claimed.leaseId,
+    nextAction: "invoke_registered_candidate_tool",
+    retryAfterMs: 0,
+  });
 }
 
 function noStore(value: unknown) {

@@ -13,3 +13,4 @@ dist/
 .wrangler/
 .env*
 !.env.example
+.vinext/

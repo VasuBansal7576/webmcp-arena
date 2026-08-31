@@ -10,6 +10,11 @@ import {
   hashGeneratedRelease,
 } from "./generated-release-audit.js";
 import { hashWebMcpToolDefinition } from "./webmcp-tool-definition.js";
+import {
+  finalizeWebMcpInvocationReceipt,
+  verifyPreparedWebMcpInvocationReceipt,
+  verifyWebMcpInvocationReceipt,
+} from "./webmcp-invocation.js";
 
 const VERSIONS = new Set(["vulnerable", "fixed"]);
 const DIGEST = /^[A-Za-z0-9_-]{43}$/;
@@ -72,6 +77,7 @@ const HOSTED_EVIDENCE_FIELDS = Object.freeze([
   "boundaryBundle",
   "exactIntent",
   "generatedAt",
+  "invocationReceipt",
   "kind",
   "releaseCoverage",
   "releaseVerdict",
@@ -141,6 +147,14 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
     throw new Error("invalid hosted audit record");
   }
   const approvalReceipt = validateApprovalReceipt(record);
+  const invocationRequest = await verifyPreparedWebMcpInvocationReceipt(record.invocation, {
+    auditId: record.id,
+    review: record.review,
+    approval: approvalReceipt,
+  });
+  if (!invocationRequest.valid) {
+    throw new Error(`a bound registered WebMCP callback receipt is required: ${invocationRequest.reason}`);
+  }
 
   const measured = await prepareMeasuredCheckout(record.version, now);
   assertReviewedPlan(record, measured);
@@ -196,14 +210,20 @@ export async function completeHostedAudit(record, { now = Date.now() } = {}) {
   const generatedAt = iso(now);
   const retentionUntil = new Date(epoch(now) + HOSTED_AUDIT_RETENTION_MS).toISOString();
   record.retentionUntil = retentionUntil;
+  const invocationReceipt = await finalizeWebMcpInvocationReceipt(record.invocation, {
+    result: agentOutcome(outcome.selectedToolBundle),
+    backendTraceRoot: agentTraceRoot(outcome.selectedToolBundle),
+    settledAt: generatedAt,
+  });
   const evidence = {
     kind: "arena.hosted_boundary_evidence",
-    version: 1,
+    version: 2,
     auditId: record.id,
     generatedAt,
     retentionUntil,
     approval: structuredClone(approvalReceipt),
     exactIntent: structuredClone(record.review),
+    invocationReceipt,
     authorization: structuredClone(outcome.authorization),
     authorizationChecks: structuredClone(authorizationChecks),
     releaseCoverage: structuredClone(outcome.coverage),
@@ -303,6 +323,7 @@ function projectHostedEvidence(evidence) {
     bundle: structuredClone(evidence.boundaryBundle),
     release: structuredClone(evidence.exactIntent.release),
     authorization: structuredClone(evidence.authorization),
+    invocationReceipt: structuredClone(evidence.invocationReceipt),
     authorizationChecks: structuredClone(evidence.authorizationChecks),
     releaseCoverage: structuredClone(evidence.releaseCoverage),
     selectedToolVerdict: evidence.selectedToolVerdict,
@@ -314,7 +335,7 @@ function projectHostedEvidence(evidence) {
 export async function verifyHostedAuditEvidence(evidence) {
   try {
     if (!isPlainObject(evidence) || !hasExactKeys(evidence, HOSTED_EVIDENCE_FIELDS) ||
-        evidence.kind !== "arena.hosted_boundary_evidence" || evidence.version !== 1 ||
+        evidence.kind !== "arena.hosted_boundary_evidence" || evidence.version !== 2 ||
         typeof evidence.auditId !== "string" || !/^[0-9a-f-]{36}$/i.test(evidence.auditId)) {
       return invalidEvidence("hosted_evidence_schema_invalid");
     }
@@ -399,6 +420,14 @@ export async function verifyHostedAuditEvidence(evidence) {
     const boundaryVerification = await verifyAuditBundle(evidence.boundaryBundle);
     if (!boundaryVerification.valid) return invalidEvidence(`boundary_${boundaryVerification.reason}`);
     const boundary = evidence.boundaryBundle;
+    const invocationVerification = await verifyWebMcpInvocationReceipt(evidence.invocationReceipt, {
+      auditId: evidence.auditId,
+      review,
+      approval: evidence.approval,
+      result: agentOutcome(boundary),
+      backendTraceRoot: agentTraceRoot(boundary),
+    });
+    if (!invocationVerification.valid) return invalidEvidence(invocationVerification.reason);
     const approvedAt = canonicalTimestamp(evidence.approval.approvedAt);
     const approvalExpiresAt = canonicalTimestamp(evidence.approval.expiresAt);
     const evidenceGeneratedAt = canonicalTimestamp(evidence.generatedAt);
@@ -634,6 +663,19 @@ function validEvidenceApproval(approval, review) {
 
 function invalidEvidence(reason) {
   return { valid: false, reason };
+}
+
+function agentOutcome(bundle) {
+  const event = bundle?.events?.find((candidate) => candidate?.route === "agent" && candidate?.payload?.kind === "outcome");
+  if (!event?.payload) throw new Error("the measured agent route did not produce a result payload");
+  return structuredClone(event.payload);
+}
+
+function agentTraceRoot(bundle) {
+  const events = bundle?.events?.filter((candidate) => candidate?.route === "agent") || [];
+  const root = events.at(-1)?.eventHash;
+  if (!DIGEST.test(root || "")) throw new Error("the measured agent route did not produce a backend trace root");
+  return root;
 }
 
 function authorizationCheck(check, result, expectedReason) {

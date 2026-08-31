@@ -6,3 +6,4 @@ for (const check of result.checks) {
   console.log(`${check.status.toUpperCase()} ${check.id} - ${check.message}`);
 }
 if (result.status !== "passed") process.exitCode = 1;
+else console.log("Release check passed");

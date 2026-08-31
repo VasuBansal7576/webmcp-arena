@@ -18,6 +18,7 @@ import {
   completeHostedAudit,
   createHostedAudit,
 } from "../src/hosted-audit.js";
+import { createWebMcpInvocationReceipt } from "../src/webmcp-invocation.js";
 
 const now = Date.parse("2026-08-31T10:00:00.000Z");
 const environment = { ARENA_ALLOW_EPHEMERAL_SIGNING: "true" };
@@ -28,12 +29,12 @@ const privateApproval = Object.freeze({
 });
 
 test("a downloaded hosted proof verifies without loading its stored audit record", async () => {
-  const record = approve(await createHostedAudit({
+  const record = await invoke(approve(await createHostedAudit({
     id: "44444444-4444-4444-8444-444444444444",
     version: "fixed",
     privateApproval,
     now,
-  }));
+  })), now + 1_500);
   const result = await completeHostedAudit(record, { now: now + 2_000 });
   const attestation = await signEvidenceWithEnvironment(
     result.evidence,
@@ -167,5 +168,18 @@ function approve(record) {
     reviewedContractHash: record.review.contractHash,
     reviewedTargetHash: record.review.targetHash,
   };
+  return record;
+}
+
+async function invoke(record, invokedAt) {
+  record.state = "waiting_for_effects";
+  record.invocation = await createWebMcpInvocationReceipt({
+    auditId: record.id,
+    review: record.review,
+    approval: record.approval,
+    pageOrigin: "https://arena.example",
+    invocationLease: "77777777-7777-4777-8777-777777777777",
+    invokedAt: new Date(invokedAt).toISOString(),
+  });
   return record;
 }

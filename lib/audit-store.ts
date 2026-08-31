@@ -16,11 +16,33 @@ type ApprovalClaimResult =
   | { status: "completed" | "conflict" | "expired" | "failed" | "invalid"; record: AuditRecord | null; leaseId: null }
   | { status: "missing"; record: null; leaseId: null };
 
+type InvocationReceipt = {
+  auditId: string;
+  toolName: string;
+  toolDefinitionHash: string;
+  argumentsHash: string;
+  sessionCommitment: string;
+  invokedAt: string;
+  [key: string]: unknown;
+};
+
+type InvocationClaimResult =
+  | { status: "claimed"; record: AuditRecord; leaseId: string }
+  | { status: "completed" | "conflict" | "expired" | "failed" | "invalid"; record: AuditRecord | null; leaseId: null }
+  | { status: "missing"; record: null; leaseId: null };
+
 export const claimApproval: (input: {
   id: string;
   now: number;
   proof: { capabilityHash: string; sessionHash: string };
 }) => Promise<ApprovalClaimResult> = store.claimApproval;
+export const claimInvocation: (input: {
+  id: string;
+  now: number;
+  leaseId: string;
+  sessionHash: string;
+  receipt: InvocationReceipt;
+}) => Promise<InvocationClaimResult> = store.claimInvocation;
 export const consumeAuditStartLimit: (input: {
   bucketKey: string;
   now: number;

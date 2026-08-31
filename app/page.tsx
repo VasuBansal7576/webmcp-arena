@@ -21,17 +21,20 @@ type AuditRecord = {
   id: string;
   version: AuditVersion;
   state: AuditState;
+  phase?: "awaiting_webmcp_invocation" | "observing_settled_effects" | "proof_signed" | "execution_failed";
   updatedAt: string;
   approvalExpiresAt: string;
   retentionUntil: string;
   review: { adapterId: string; implementationVersion: AuditVersion; targetPreset: string; target: string; targetHash: string; release: { id: string; version: string; generator: string; artifact: { algorithm: "sha256"; digest: string; subject: string }; hash: string }; releaseHash: string; releaseManifest: { tools: ToolDefinition[] }; coverage: { auditedTools: string[]; totalTools: number; complete: boolean }; principal: { label: string; scope: string; hash: string }; principalHash: string; agent: { id: string; assurance: string; hash: string }; agentHash: string; toolName: string; toolDefinition: ToolDefinition; toolDefinitionHash: string; toolHash: string; claimScope: string; contractHash: string; arguments: Record<string, unknown>; argumentsHash: string; effects: EvidenceEvent[]; invariants: { requireAuthorizationBeforeEffect: boolean; requireApprovalBeforeEffect: boolean; requireEffectSettlement: boolean; allowedAuthorizationRules: string[] | null; allowedResourceOwners: string[] | null; money?: { currency?: string; maxAmount?: number } }; baselineSafety: { status: string }; trustMode: "server_attested"; approvalAssurance: string };
   history: Array<{ state: string; at: string }>;
+  invocation?: { channel: "registered_webmcp_callback"; pageOrigin: string; requestHash: string };
   result: null | {
     verdict: "pass" | "fail";
     summary: string;
     findings: Finding[];
     release: { id: string; version: string; generator: string; artifact: { algorithm: "sha256"; digest: string; subject: string }; hash: string };
     authorization: { status: string; agentHash: string; reviewerHash: string };
+    invocationReceipt: { channel: string; pageOrigin: string; requestHash: string; resultHash: string; backendTraceRoot: string };
     authorizationChecks: AuthorizationCheck[];
     releaseCoverage: { auditedTools: string[]; totalTools: number; complete: boolean };
     selectedToolVerdict: "pass" | "fail" | "inconclusive";
@@ -45,6 +48,8 @@ type AuditRecord = {
 };
 
 type AuditStartResponse = { audit: AuditRecord; approvalCapability: string | null };
+type ApprovalResponse = { audit: AuditRecord; invocationLease: string | null; nextAction?: string; retryAfterMs?: number };
+type InvocationResponse = { audit: AuditRecord; toolResult: Record<string, unknown> | null; nextAction: string; retryAfterMs: number };
 
 declare global {
   interface Document {
@@ -62,6 +67,8 @@ export default function Home() {
   const [proofState, setProofState] = useState<ProofState>({ kind: "unchecked" });
   const auditRef = useRef<AuditRecord | null>(null);
   const approvalCapabilityRef = useRef<{ auditId: string; value: string } | null>(null);
+  const invocationLeaseRef = useRef<{ auditId: string; value: string } | null>(null);
+  const candidateControllerRef = useRef<AbortController | null>(null);
   useEffect(() => { auditRef.current = audit; }, [audit]);
 
   const adoptAudit = useCallback((next: AuditRecord) => {
@@ -71,11 +78,30 @@ export default function Home() {
     });
   }, []);
 
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem("arena.active-audit.v1");
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as { auditId?: string; approvalCapability?: string; invocationLease?: string };
+      if (!parsed.auditId) return;
+      if (parsed.approvalCapability) approvalCapabilityRef.current = { auditId: parsed.auditId, value: parsed.approvalCapability };
+      if (parsed.invocationLease) invocationLeaseRef.current = { auditId: parsed.auditId, value: parsed.invocationLease };
+      void requestJson<AuditRecord>(`/api/audits?id=${encodeURIComponent(parsed.auditId)}`).then(adoptAudit).catch(() => {
+        window.sessionStorage.removeItem("arena.active-audit.v1");
+      });
+    } catch {
+      window.sessionStorage.removeItem("arena.active-audit.v1");
+    }
+  }, [adoptAudit]);
+
   const startAudit = useCallback(async (version: AuditVersion, idempotencyKey = crypto.randomUUID()) => {
     setBusy(true); setError(""); setProofState({ kind: "unchecked" });
     try {
       const response = await requestJson<AuditStartResponse>("/api/audits", { method: "POST", body: JSON.stringify({ version, idempotencyKey }) });
-      if (response.approvalCapability) approvalCapabilityRef.current = { auditId: response.audit.id, value: response.approvalCapability };
+      if (response.approvalCapability) {
+        approvalCapabilityRef.current = { auditId: response.audit.id, value: response.approvalCapability };
+        persistActiveAudit({ auditId: response.audit.id, approvalCapability: response.approvalCapability });
+      }
       adoptAudit(response.audit);
       return agentAuditStatus(response.audit);
     } catch (caught) {
@@ -115,6 +141,59 @@ export default function Home() {
     return () => controller.abort();
   }, [getStatus, startAudit]);
 
+  const invokeCandidate = useCallback(async (
+    auditId: string,
+    definition: ToolDefinition,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) => {
+    const boundLease = invocationLeaseRef.current;
+    if (!boundLease || boundLease.auditId !== auditId) throw new Error("The single-use WebMCP invocation lease is unavailable or expired.");
+    const response = await requestJson<InvocationResponse>("/api/audits/invoke", {
+      method: "POST",
+      signal,
+      headers: { "x-arena-webmcp-callback": "?1" },
+      body: JSON.stringify({
+        auditId,
+        invocationLease: boundLease.value,
+        toolName: definition.name,
+        toolDefinitionHash: auditRef.current?.review.toolDefinitionHash,
+        arguments: args,
+      }),
+    });
+    invocationLeaseRef.current = null;
+    window.sessionStorage.removeItem("arena.active-audit.v1");
+    adoptAudit(response.audit);
+    return {
+      ...response.toolResult,
+      auditId,
+      verdict: response.audit.result?.verdict || "inconclusive",
+      nextAction: response.nextAction,
+      proofUrl: absoluteUrl(`/api/audits/verify?id=${encodeURIComponent(auditId)}`),
+    };
+  }, [adoptAudit]);
+
+  useEffect(() => {
+    candidateControllerRef.current?.abort();
+    candidateControllerRef.current = null;
+    setWebMcpStatus("2 tools · ready");
+    if (!document.modelContext || !audit || audit.phase !== "awaiting_webmcp_invocation") return;
+    const lease = invocationLeaseRef.current;
+    if (!lease || lease.auditId !== audit.id) return;
+    const controller = new AbortController();
+    candidateControllerRef.current = controller;
+    const definition = audit.review.toolDefinition;
+    void document.modelContext.registerTool({
+      ...definition,
+      description: `${definition.description} Arena will bind this registered callback to the approved intent and settled backend effects.`,
+      execute: (args: Record<string, unknown>, context?: { signal?: AbortSignal }) =>
+        invokeCandidate(audit.id, definition, args, context?.signal),
+    }, { signal: controller.signal }).then(() => setWebMcpStatus("3 tools · candidate ready")).catch(() => {
+      if (!controller.signal.aborted) setWebMcpStatus("candidate registration failed");
+    });
+    return () => controller.abort();
+  }, [audit?.id, audit?.phase, invokeCandidate]);
+
   useEffect(() => {
     if (!audit || !new Set(["running", "waiting_for_effects"]).has(audit.state)) return;
     const timer = window.setInterval(() => getStatus(audit.id).catch(() => {}), 500);
@@ -130,13 +209,17 @@ export default function Home() {
     }
     setBusy(true); setError("");
     try {
-      const next = await requestJson<AuditRecord>("/api/audits/approve", {
+      const response = await requestJson<ApprovalResponse>("/api/audits/approve", {
         method: "POST",
         headers: { "x-arena-interface-confirmation": "?1" },
         body: JSON.stringify({ auditId: audit.id, approvalCapability: boundCapability.value }),
       });
       approvalCapabilityRef.current = null;
-      adoptAudit(next);
+      if (response.invocationLease) {
+        invocationLeaseRef.current = { auditId: response.audit.id, value: response.invocationLease };
+        persistActiveAudit({ auditId: response.audit.id, invocationLease: response.invocationLease });
+      }
+      adoptAudit(response.audit);
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
   };
@@ -185,27 +268,31 @@ export default function Home() {
 
   const steps = useMemo(() => new Set(audit?.history.map((item) => item.state) || []), [audit]);
   const verdict = audit?.result?.verdict;
+  const displayState = audit?.phase || audit?.state || "idle";
+  const primaryRisk = audit?.result ? primaryRiskMessage(audit.result) : null;
 
   return (
     <main>
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Arena home"><span>A</span> Arena</a>
-        <nav aria-label="Runtime status"><span>WebMCP · {webMcpStatus}</span><span>D1 · 30-day proof retention</span><span>Ed25519 proof</span></nav>
+        <nav aria-label="Primary"><a href="/docs">Docs</a><a href="/use-cases">Use cases</a><a href="/blog">Blog</a><span>WebMCP · {webMcpStatus}</span></nav>
       </header>
 
       <section className="hero" id="top">
         <div><p className="eyebrow">Behavioral release evidence for WebMCP</p><h1>Generated tools need <em>proof.</em></h1></div>
-        <p className="lede">Tool generators can publish WebMCP in minutes. Arena executes the human and agent routes, observes settled backend effects, and returns a signed verdict that release systems can enforce.</p>
+        <div className="hero-copy"><p className="lede">A tool can claim “read only” and still charge a card. Arena compares the protection outcome of the human and agent routes, watches delayed backend effects, and signs a release verdict.</p><div className="button-row hero-actions"><Button size="lg" disabled={busy} onClick={() => startAudit("vulnerable")}>Prove the hidden charge</Button><a className="text-link" href="/docs/quickstart">Integrate Arena →</a></div></div>
       </section>
 
-      <section className="workbench" aria-labelledby="proof-title">
-        <div className="section-heading"><div><p className="eyebrow">Live generated-release audit</p><h2 id="proof-title">Generated WebMCP Release Proof</h2></div><span className={`state-pill ${verdict || audit?.state || "idle"}`}>{audit?.state?.replaceAll("_", " ") || "not started"}</span></div>
-        <p className="section-copy">An agent may prepare and poll this vendor-neutral release audit through WebMCP. Approval must traverse the visible interface with a one-time capability bound to the release, claimed agent, tool definition, exact arguments, target, contract, browser session, nonce, and expiry. The demo agent label is self-asserted, not vendor-attested. This signed proof measures Arena&apos;s owned server adapter through terminal settlement; the separate <a href="/checkout?mode=vulnerable">registered WebMCP checkout demo</a> is an interactive standards demo, not substituted evidence.</p>
+      <section className="workbench" aria-labelledby="proof-title" aria-busy={busy}>
+        <div className="section-heading"><div><p className="eyebrow">Live boundary audit</p><h2 id="proof-title">Can this WebMCP tool ship?</h2></div><span className={`state-pill ${verdict || audit?.state || "idle"}`}>{verdict ? verdictLabel(verdict) : displayState.replaceAll("_", " ")}</span></div>
+        <p className="section-copy">The agent prepares the release. You approve the exact intent. Arena then exposes the reviewed candidate as a real registered WebMCP tool and will not issue a conclusive proof until that callback runs.</p>
+
+        {primaryRisk && <aside className={`risk-callout ${verdict}`} role="status" aria-live="polite"><span>{verdictLabel(verdict!)}</span><strong>{primaryRisk.headline}</strong><p>{primaryRisk.detail}</p></aside>}
 
         <div className="flow-grid">
-          <article className="flow-card"><span className="step">01</span><h3>Load a generated release</h3><p>The agent chooses a server-owned test release. It cannot submit routes, evidence, or approval claims.</p><div className="button-row"><Button size="lg" disabled={busy} onClick={() => startAudit("vulnerable")}>Audit unsafe release</Button><Button size="lg" variant="secondary" disabled={busy} onClick={() => startAudit("fixed")}>Audit fixed release</Button></div></article>
+          <article className="flow-card"><span className="step">01</span><h3>Choose a release</h3><p>Run the known failure first, then prove the fix against the same reviewed boundary.</p><div className="button-row"><Button size="lg" disabled={busy} onClick={() => startAudit("vulnerable")}>Unsafe: hidden $149 charge</Button><Button size="lg" variant="secondary" disabled={busy} onClick={() => startAudit("fixed")}>Fixed: preview only</Button></div></article>
           <article className="flow-card review-card"><span className="step">02</span><h3>Review the exact intent</h3>{audit ? <dl><div><dt>Release</dt><dd title={audit.review.release.hash}>{audit.review.release.generator} · {audit.review.release.version} · {audit.review.coverage.auditedTools.length}/{audit.review.coverage.totalTools} tools</dd></div><div><dt>Artifact</dt><dd title={`${audit.review.release.artifact.subject}\n${audit.review.release.artifact.digest}`}>{audit.review.release.artifact.algorithm} · {short(audit.review.release.artifact.digest)}</dd></div><div><dt>Measurement</dt><dd>{audit.review.trustMode.replaceAll("_", " ")} · {audit.review.adapterId} {audit.review.implementationVersion}</dd></div><div><dt>Account</dt><dd title={audit.review.principal.hash}>{audit.review.principal.label} · {audit.review.principal.scope}</dd></div><div><dt>Agent claim</dt><dd title={audit.review.agent.hash}>{audit.review.agent.id} · self-asserted</dd></div><div><dt>Target</dt><dd title={`${audit.review.target}\n${audit.review.targetHash}`}>{audit.review.targetPreset} · {short(audit.review.targetHash)}</dd></div><div><dt>Tool claim</dt><dd>{audit.review.toolName} · {audit.review.toolDefinition.annotations?.readOnlyHint ? "read-only" : "writes"}</dd></div><div><dt>Description</dt><dd>{audit.review.toolDefinition.description}</dd></div><div><dt>Schema</dt><dd title={JSON.stringify(audit.review.toolDefinition.inputSchema)}>{schemaSummary(audit.review.toolDefinition)}</dd></div><div><dt>Definition</dt><dd title={audit.review.toolDefinitionHash}>{short(audit.review.toolDefinitionHash)}</dd></div><div><dt>Arguments</dt><dd title={JSON.stringify(audit.review.arguments)}>{JSON.stringify(audit.review.arguments)}</dd></div><div><dt>Expected effects</dt><dd title={JSON.stringify(audit.review.effects)}>{effectSummary(audit.review.effects)}</dd></div><div><dt>Authorization</dt><dd>{audit.review.invariants.requireAuthorizationBeforeEffect ? "required" : "not required"} · {listOrAny(audit.review.invariants.allowedAuthorizationRules)}</dd></div><div><dt>Resource owners</dt><dd>{listOrAny(audit.review.invariants.allowedResourceOwners)}</dd></div><div><dt>Settlement</dt><dd>{audit.review.invariants.requireEffectSettlement ? "terminal evidence required" : "not required"}</dd></div><div><dt>Spend ceiling</dt><dd>{audit.review.invariants.money?.currency || "USD"} {audit.review.invariants.money?.maxAmount ?? 0}</dd></div><div><dt>Review expires</dt><dd>{new Date(audit.approvalExpiresAt).toLocaleTimeString()}</dd></div><div><dt>Proof retained</dt><dd>{new Date(audit.retentionUntil).toLocaleDateString()}</dd></div><div><dt>Contract</dt><dd title={audit.review.contractHash}>{short(audit.review.contractHash)}</dd></div></dl> : <p className="empty">Start an audit to prepare the exact release and intent.</p>}<Button size="lg" className="approve" disabled={busy || audit?.state !== "awaiting_approval"} onClick={approve}>Approve exact intent</Button><small>No approval WebMCP tool exists. The interface capability is single-use and session-bound.</small></article>
-          <article className="flow-card"><span className="step">03</span><h3>Observe settled outcome</h3>{audit?.result ? <div className={`verdict ${verdict}`}><strong>{verdict?.toUpperCase()}</strong><p>{audit.result.summary}</p></div> : <p className="empty">{audit ? stateMessage(audit.state) : "No route has executed."}</p>}<div className="stage-row">{["preparing", "awaiting_approval", "running", "waiting_for_effects", "completed"].map((state) => <span key={state} className={steps.has(state) ? "done" : ""}>{state.replaceAll("_", " ")}</span>)}</div></article>
+          <article className="flow-card" aria-live="polite"><span className="step">03</span><h3>Invoke and observe</h3>{audit?.result ? <div className={`verdict ${verdict}`}><strong>{verdictLabel(verdict!)}</strong><p>{audit.result.summary}</p></div> : <p className="empty">{audit ? phaseMessage(audit) : "No route has executed."}</p>}<div className="stage-row">{["preparing", "awaiting_approval", "awaiting_webmcp_invocation", "waiting_for_effects", "completed"].map((state) => <span key={state} className={steps.has(state) || displayState === state ? "done" : ""}>{state.replaceAll("_", " ")}</span>)}</div></article>
         </div>
         {error && <p role="alert" className="error">{error}</p>}
       </section>
@@ -216,7 +303,7 @@ export default function Home() {
           <div className="layer-grid"><Layer title="Route parity" value={audit.result.bundle.routeParity.status} description="Did the agent route preserve the reviewed human outcomes?"/><Layer title="Baseline safety" value={audit.result.bundle.baselineSafety.status} description="Was the human baseline itself safe under the declared invariants?"/><Layer title="Effect settlement" value={audit.result.display.settlement.complete ? "complete" : "inconclusive"} description={`Capture ended at ${audit.result.display.settlement.reason}.`}/></div>
           <AuthorizationChecks checks={audit.result.authorizationChecks} releaseHash={audit.result.release.hash}/>
           <div className="timeline-grid"><Timeline title="Human route" events={audit.result.display.humanEvents}/><Timeline title="Agent route" events={audit.result.display.agentEvents}/></div>
-          <div className="proof-strip"><div><span>Algorithm</span><strong>{audit.result.attestation.algorithm}</strong></div><div><span>Payload hash</span><strong title={audit.result.payloadHash}>{short(audit.result.payloadHash)}</strong></div><div><span>Signing key</span><strong title={audit.result.attestation.keyId}>{short(audit.result.attestation.keyId)}</strong></div><div><span>Release coverage</span><strong>{audit.result.releaseCoverage.auditedTools.length}/{audit.result.releaseCoverage.totalTools} tools</strong></div><div><span>Trust root</span><strong>{proofTrustRoot(proofState)}</strong></div></div>
+          <details className="technical-proof"><summary>Technical proof commitments</summary><div className="proof-strip"><div><span>Algorithm</span><strong>{audit.result.attestation.algorithm}</strong></div><div><span>Payload hash</span><strong title={audit.result.payloadHash}>{short(audit.result.payloadHash)}</strong></div><div><span>Signing key</span><strong title={audit.result.attestation.keyId}>{short(audit.result.attestation.keyId)}</strong></div><div><span>Callback channel</span><strong>{audit.result.invocationReceipt?.channel || "missing"}</strong></div><div><span>Release coverage</span><strong>{audit.result.releaseCoverage.auditedTools.length}/{audit.result.releaseCoverage.totalTools} tools</strong></div><div><span>Trust root</span><strong>{proofTrustRoot(proofState)}</strong></div></div></details>
           <div className="proof-actions"><Button variant="secondary" disabled={proofState.kind !== "valid"} onClick={downloadProof}>Download signed JSON proof</Button><small>{proofState.kind === "valid" ? `Key-ID-addressed evidence retained until ${new Date(audit.retentionUntil).toLocaleDateString()}; retired verification keys remain discoverable in Arena's trust set.` : "Download unlocks after signature and trust-root verification."}</small></div>
           {audit.result.findings.length > 0 && <div className="findings">{audit.result.findings.map((finding) => <article key={finding.code}><span>{finding.kind}</span><strong>{finding.code.replaceAll("_", " ")}</strong><p>{finding.message}</p></article>)}</div>}
         </>}
@@ -238,14 +325,32 @@ function short(value: string) { return value.length > 22 ? `${value.slice(0, 20)
 function schemaSummary(tool: ToolDefinition) { const required = tool.inputSchema.required || []; return `${required.length ? required.join(", ") : "no required inputs"} · additional properties ${tool.inputSchema.additionalProperties === false ? "blocked" : "allowed"}`; }
 function effectSummary(effects: EvidenceEvent[]) { return effects.map((effect) => String(effect.kind).replaceAll("_", " ")).join(" → "); }
 function listOrAny(values: string[] | null) { return values?.length ? values.join(", ") : "unrestricted"; }
-function stateMessage(state: AuditState) { return ({ awaiting_approval: "Interface review required. No agent route has executed.", running: "Approved. The agent route is executing.", waiting_for_effects: "The tool returned. Arena is still watching delayed effects.", completed: "Audit complete.", failed: "Audit failed." })[state]; }
+function phaseMessage(audit: AuditRecord) {
+  if (audit.phase === "awaiting_webmcp_invocation") return `Approved. Ask your agent to invoke the newly registered ${audit.review.toolName} tool.`;
+  return ({ awaiting_approval: "Interface review required. No agent route has executed.", running: "Approved. Registering the reviewed WebMCP callback.", waiting_for_effects: "The callback ran. Arena is watching delayed effects.", completed: "Audit complete.", failed: "Audit failed." })[audit.state];
+}
+function verdictLabel(verdict: "pass" | "fail") { return verdict === "pass" ? "Safe to ship" : "Block release"; }
+function primaryRiskMessage(result: NonNullable<AuditRecord["result"]>) {
+  const hiddenCharge = result.display.agentEvents.find((event) => event.kind === "money" && Number(event.amount) > 0);
+  if (hiddenCharge) return {
+    headline: `Read-only preview charged ${hiddenCharge.currency || "USD"} ${hiddenCharge.amount}`,
+    detail: "The human route required confirmation. The registered agent callback returned a preview, then the server recorded a delayed charge before settlement.",
+  };
+  return {
+    headline: "Agent route preserved the reviewed protection boundary",
+    detail: "Authorization, confirmation, spend, ownership, and settled effects matched the safe human route.",
+  };
+}
 function agentAuditStatus(record: AuditRecord) {
   const encodedAuditId = encodeURIComponent(record.id);
+  const link = (path: string) => typeof window === "undefined" ? path : new URL(path, window.location.origin).href;
   const status = {
     auditId: record.id,
     state: record.state,
     nextAction: record.state === "awaiting_approval"
       ? "review_and_approve_in_visible_interface"
+      : record.phase === "awaiting_webmcp_invocation"
+        ? `invoke_registered_tool:${record.review.toolName}`
       : record.result
         ? "verify_signed_proof"
         : record.state === "failed"
@@ -256,6 +361,7 @@ function agentAuditStatus(record: AuditRecord) {
       method: "visible_interface_only",
       expiresAt: record.approvalExpiresAt,
     },
+    retryAfterMs: record.state === "running" || record.state === "waiting_for_effects" ? 500 : 0,
     commitments: {
       releaseHash: record.review.releaseHash,
       toolName: record.review.toolName,
@@ -267,9 +373,9 @@ function agentAuditStatus(record: AuditRecord) {
     },
     evidence: {
       retainedUntil: record.retentionUntil,
-      signedEvidenceUrl: `/api/audits?id=${encodedAuditId}`,
-      verificationUrl: `/api/audits/verify?id=${encodedAuditId}`,
-      visibleReviewUrl: "/#proof-title",
+      signedEvidenceUrl: link(`/api/audits?id=${encodedAuditId}`),
+      verificationUrl: link(`/api/audits/verify?id=${encodedAuditId}`),
+      visibleReviewUrl: link("/#proof-title"),
     },
   };
   if (!record.result) return status;
@@ -286,6 +392,10 @@ function agentAuditStatus(record: AuditRecord) {
       signingKeyId: record.result.attestation.keyId,
     },
   };
+}
+function absoluteUrl(path: string) { return typeof window === "undefined" ? path : new URL(path, window.location.origin).href; }
+function persistActiveAudit(value: { auditId: string; approvalCapability?: string; invocationLease?: string }) {
+  window.sessionStorage.setItem("arena.active-audit.v1", JSON.stringify(value));
 }
 function errorMessage(value: unknown) { return value instanceof Error ? value.message : "Unexpected audit error"; }
 async function requestJson<T>(path: string, init: RequestInit = {}) {

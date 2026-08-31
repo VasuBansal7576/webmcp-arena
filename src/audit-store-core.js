@@ -1,4 +1,4 @@
-const EXECUTION_LEASE_MS = 30_000;
+const EXECUTION_LEASE_MS = 120_000;
 const DIGEST = /^[A-Za-z0-9_-]{43}$/;
 const NONCE = /^[A-Za-z0-9_-]{16,128}$/;
 const EXECUTION_STATES = new Set(["running", "waiting_for_effects"]);
@@ -67,6 +67,7 @@ export function createAuditStore(getDb) {
     const updatedAt = new Date(now).toISOString();
     const approvedRecord = structuredClone(record);
     approvedRecord.state = "running";
+    approvedRecord.phase = "awaiting_webmcp_invocation";
     approvedRecord.updatedAt = updatedAt;
     approvedRecord.approval = {
       status: "approved",
@@ -86,7 +87,7 @@ export function createAuditStore(getDb) {
       reviewedToolHash: review.toolHash,
       reviewedArgumentsHash: review.argumentsHash,
     };
-    approvedRecord.history = [...record.history, { state: "running", at: updatedAt }];
+    approvedRecord.history = [...record.history, { state: "awaiting_webmcp_invocation", at: updatedAt }];
 
     const result = await db.prepare(`UPDATE audits
       SET state = 'running', updated_at = ?, lease_id = ?, lease_expires_at = ?, payload = ?
@@ -133,6 +134,56 @@ export function createAuditStore(getDb) {
       return claimResult("invalid", currentRecord);
     }
     return claimResult("conflict", currentRecord);
+  }
+
+  async function claimInvocation({ id, now, leaseId, sessionHash, receipt }) {
+    const db = await getDb();
+    const row = await loadAuditRow(db, id);
+    if (!row) return claimResult("missing");
+    const record = parseRecord(row.payload);
+    record.state = row.state;
+    if (row.state === "completed") return claimResult("completed", record);
+    if (row.state === "failed") return claimResult("conflict", record);
+    if (row.state !== "running") return claimResult("conflict", record);
+    if (row.lease_expires_at === null || row.lease_expires_at <= now) {
+      const failed = await markFailedIfCurrent(db, row, now, "invocation_lease_expired");
+      return failed ? claimResult("expired", failed) : claimResult("conflict", await loadAudit(id));
+    }
+    if (!validInvocationClaim({ record, row, leaseId, sessionHash, receipt, now })) {
+      return claimResult("invalid", record);
+    }
+
+    const updatedAt = new Date(now).toISOString();
+    const next = structuredClone(record);
+    next.state = "waiting_for_effects";
+    next.phase = "observing_settled_effects";
+    next.updatedAt = updatedAt;
+    next.invocation = structuredClone(receipt);
+    next.history = [...record.history, { state: "waiting_for_effects", at: updatedAt }];
+    const result = await db.prepare(`UPDATE audits
+      SET state = 'waiting_for_effects', updated_at = ?, lease_expires_at = ?, payload = ?
+      WHERE id = ? AND state = 'running' AND lease_id = ? AND lease_expires_at > ? AND updated_at = ?
+        AND json_extract(payload, '$.approval.sessionCommitment') = ?
+        AND json_extract(payload, '$.review.toolName') = ?
+        AND json_extract(payload, '$.review.toolDefinitionHash') = ?
+        AND json_extract(payload, '$.review.argumentsHash') = ?`)
+      .bind(
+        now,
+        now + EXECUTION_LEASE_MS,
+        JSON.stringify(next),
+        id,
+        leaseId,
+        now,
+        row.updated_at,
+        sessionHash,
+        receipt.toolName,
+        receipt.toolDefinitionHash,
+        receipt.argumentsHash,
+      ).run();
+    if (changed(result)) return claimResult("claimed", next, leaseId);
+    const current = await loadAuditRow(db, id);
+    if (!current) return claimResult("missing");
+    return claimResult(current.state === "completed" ? "completed" : "conflict", parseRecord(current.payload));
   }
 
   async function rotateApprovalCapability(record, privateApproval, now) {
@@ -245,6 +296,7 @@ export function createAuditStore(getDb) {
 
   return Object.freeze({
     claimApproval,
+    claimInvocation,
     consumeAuditStartLimit,
     insertAudit,
     loadAudit,
@@ -254,6 +306,20 @@ export function createAuditStore(getDb) {
     rotateApprovalCapability,
     saveAudit,
   });
+}
+
+function validInvocationClaim({ record, row, leaseId, sessionHash, receipt, now }) {
+  if (typeof leaseId !== "string" || leaseId !== row.lease_id ||
+      !DIGEST.test(sessionHash || "") || sessionHash !== record.approval?.sessionCommitment ||
+      !receipt || typeof receipt !== "object" || Array.isArray(receipt) ||
+      receipt.kind !== "arena.webmcp_invocation_receipt" || receipt.version !== 1 ||
+      receipt.channel !== "registered_webmcp_callback" || receipt.auditId !== record.id ||
+      receipt.sessionCommitment !== sessionHash || receipt.toolName !== record.review?.toolName ||
+      receipt.toolDefinitionHash !== record.review?.toolDefinitionHash ||
+      receipt.argumentsHash !== record.review?.argumentsHash ||
+      !DIGEST.test(receipt.requestHash || "") || !DIGEST.test(receipt.invocationLeaseCommitment || "")) return false;
+  const invokedAt = Date.parse(String(receipt.invokedAt));
+  return Number.isFinite(invokedAt) && invokedAt <= now && now - invokedAt <= 10_000;
 }
 
 async function loadAuditRow(db, id) {

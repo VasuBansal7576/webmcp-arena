@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, createHmac } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { runArenaCli } from "../src/arena-cli.js";
@@ -8,6 +11,54 @@ import { createGymFixtureServer } from "../src/gym-fixture.js";
 import { hashWebMcpToolDefinition } from "../src/webmcp-runner.js";
 
 const fixtureToken = "arena-cli-fixture-token";
+
+test("bare Arena and --help expose the same usable command surface", async () => {
+  for (const argv of [[], ["--help"], ["help"]]) {
+    const result = await runArenaCli(argv);
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /arena init/);
+    assert.match(result.stdout, /arena verify/);
+    assert.match(result.stdout, /arena test/);
+    assert.equal(result.stderr, "");
+  }
+});
+
+test("arena init creates a typed adapter, explicit config, and behavioral proof workflow without overwriting", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "arena-init-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const result = await runArenaCli(["init", "--directory", directory]);
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(await readFile(join(directory, "arena.config.mjs"), "utf8"), /document-sharing/);
+  assert.match(await readFile(join(directory, "arena", "document-sharing.adapter.ts"), "utf8"), /defineOwnedTargetAdapter/);
+  const workflow = await readFile(join(directory, ".github", "workflows", "arena.yml"), "utf8");
+  assert.match(workflow, /webmcp-arena@v0\.4\.0/);
+  assert.match(workflow, /mode: proof/);
+
+  const repeated = await runArenaCli(["init", "--directory", directory]);
+  assert.equal(repeated.exitCode, 2);
+  assert.match(JSON.parse(repeated.stdout).error, /refusing to overwrite/);
+});
+
+test("arena verify gates a portable proof by cryptographic and semantic verdict", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "arena-verify-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const proofPath = join(directory, "proof.json");
+  const proof = { kind: "arena.portable_hosted_audit_proof", evidence: { releaseVerdict: "pass" } };
+  await import("node:fs/promises").then(({ writeFile }) => writeFile(proofPath, JSON.stringify(proof)));
+  const calls = [];
+  const passed = await runArenaCli(["verify", proofPath, "--require", "pass"], {
+    async verifyProof(value) { calls.push(value); return { valid: true, verdict: "pass", payloadHash: "P".repeat(43) }; },
+  });
+  assert.equal(passed.exitCode, 0);
+  assert.equal(JSON.parse(passed.stdout).status, "verified");
+  assert.deepEqual(calls, [proof]);
+
+  const blocked = await runArenaCli(["verify", proofPath, "--require", "pass"], {
+    async verifyProof() { return { valid: true, verdict: "fail", payloadHash: "P".repeat(43) }; },
+  });
+  assert.equal(blocked.exitCode, 1);
+  assert.equal(JSON.parse(blocked.stdout).reason, "required_verdict_not_met");
+});
 
 test("arena test prepares the real target contract but does not execute the agent without approval", async (t) => {
   const fixture = createGymFixtureServer({ fixtureToken });

@@ -1,0 +1,3 @@
+import { DocsShell } from "@/components/docs-shell";
+
+export default function Blog() { return <DocsShell eyebrow="Essays" title="Notes on the agentic web." description="Short arguments about authority, behavioral verification, and the security boundary that WebMCP changes."><section className="docs-grid"><a className="docs-card" href="/blog/why-captchas-are-the-wrong-boundary"><span>Authority</span><h2>Why CAPTCHAs are the wrong boundary</h2><p>Authorized agents should prove who delegated what—not pretend to be human.</p></a><a className="docs-card" href="/blog/webmcp-tools-need-behavioral-proof"><span>Verification</span><h2>WebMCP tools need behavioral proof</h2><p>A description is a claim. Settled effects are evidence.</p></a></section></DocsShell>; }

@@ -23,6 +23,9 @@ export default defineConfig(async () => {
         config: {
           main: "vinext/server/fetch-handler",
           compatibility_flags: ["nodejs_compat"],
+          vars: process.env.ARENA_ALLOW_EPHEMERAL_SIGNING === "true"
+            ? { ARENA_ALLOW_EPHEMERAL_SIGNING: "true" }
+            : {},
           d1_databases: d1 ? [{ binding: d1, database_name: "arena-audits", database_id: PLACEHOLDER_DATABASE_ID }] : [],
           r2_buckets: r2 ? [{ binding: r2, bucket_name: "arena-evidence" }] : [],
         },

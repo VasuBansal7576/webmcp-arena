@@ -1,0 +1,36 @@
+# Arena agent context
+
+Arena answers: does a WebMCP agent route preserve the authorization, approval, value, ownership, data, and settlement protections enforced by the human route?
+
+## Hosted lifecycle
+
+1. Call `start_generated_release_audit` with `vulnerable` or `fixed`.
+2. Direct the user to the absolute `visibleReviewUrl`.
+3. The user approves exact intent in the visible interface. No approval WebMCP tool exists.
+4. Wait for state `running` with phase `awaiting_webmcp_invocation`.
+5. Discover the newly registered candidate tool and invoke it with the reviewed arguments.
+6. The registered WebMCP callback consumes a single-use, session-bound lease.
+7. Arena joins the callback request to the result and terminal backend trace, signs the evidence, and returns a verdict.
+8. Verify using the absolute `verificationUrl` or `arena verify proof.json --require pass`.
+
+Never treat `readOnlyHint`, tool descriptions, page-authored claims, static markers, or task completion as behavioral proof.
+
+## Claim boundary
+
+The hosted proof establishes a registered callback request bound to Arena's page origin and a server-attested effect trace. It does not cryptographically prove browser provenance, verify an external agent vendor, or establish safety for arbitrary sites.
+
+## Verdicts
+
+- `pass`: safe to ship for the reviewed release, tool, arguments, target, principal, contract, and evidence scope.
+- `fail`: block release; an observed effect or protection differed.
+- `inconclusive`: do not ship based on this run; coverage, settlement, trust, or execution was incomplete.
+
+## Key errors
+
+- `invocation_requires_registered_callback`: request missed the same-origin callback boundary.
+- `invocation_binding_mismatch`: session, tool, definition, arguments, or lease changed.
+- `invocation_already_consumed`: replay or concurrent reuse.
+- `invocation_lease_expired`: start a new audit.
+- `proof_generation_failed`: retry only after inspecting the failed record.
+
+Canonical docs index: https://webmcp-arena.zippy17.chatgpt.site/api/docs

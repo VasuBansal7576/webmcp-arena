@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
-import { link, open, readFile, realpath, stat, unlink } from "node:fs/promises";
+import { link, mkdir, open, readFile, realpath, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +9,7 @@ import { createGymAuditAdapters } from "./gym-audit-adapter.js";
 import { createIncidentLab } from "./incident-lab.js";
 import { scanUrl } from "./scanner.js";
 import { createWebMcpBrowserRunner } from "./webmcp-runner.js";
+import { verifyPortableProof } from "./proof-gate.js";
 
 const TEST_OPTIONS = new Set([
   "target",
@@ -22,6 +23,8 @@ const TEST_OPTIONS = new Set([
 ]);
 const DEMO_OPTIONS = new Set(["scenario", "version", "mode", "format"]);
 const PREFLIGHT_OPTIONS = new Set(["mcp", "openapi", "agent_skills", "allow_private_targets", "format"]);
+const INIT_OPTIONS = new Set(["directory"]);
+const VERIFY_OPTIONS = new Set(["require", "format"]);
 const CONTRACT_HASH = /^[A-Za-z0-9_-]{43}$/;
 const REDACTION_KEY_LABEL = "arena.cli.redaction-key.v1";
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -34,14 +37,18 @@ export async function runArenaCli(argv = [], overrides = {}) {
     createAuditor: createBoundaryAuditor,
     createLab: createIncidentLab,
     scanUrl,
+    verifyProof: verifyPortableProof,
     now: () => new Date(),
     ...overrides,
   };
 
   try {
     const [command = "help", ...tokens] = argv;
+    if (command === "help" || command === "--help" || command === "-h") return helpResult();
+    if (command === "init") return await runInit(tokens);
+    if (command === "verify") return await runVerify(tokens, dependencies);
     if (command === "demo") return runDemo(tokens, dependencies);
-    if (command === "preflight") return runPreflight(tokens, dependencies);
+    if (command === "preflight") return await runPreflight(tokens, dependencies);
     if (command !== "test") return errorResult(`unknown command: ${command}`, outputFormat);
     const options = parseOptions(tokens, TEST_OPTIONS);
     validateTestOptions(options);
@@ -119,6 +126,137 @@ export async function runArenaCli(argv = [], overrides = {}) {
   } catch (error) {
     return errorResult(error?.message || String(error), outputFormat);
   }
+}
+
+function helpResult() {
+  return {
+    exitCode: 0,
+    stdout: `Arena — behavioral proof for WebMCP releases
+
+Usage:
+  arena init [--directory PATH]
+  arena preflight URL [--mcp URL] [--openapi URL]
+  arena test --target URL --fixture-token TOKEN --browser-executable PATH --browser-mode native
+  arena verify PROOF.json [--require pass|fail]
+  arena demo [--scenario gym_waitlist] [--version vulnerable|fixed]
+
+Start with “arena init”, then review the generated adapter and workflow.
+Docs: https://webmcp-arena.zippy17.chatgpt.site/docs/quickstart
+`,
+    stderr: "",
+  };
+}
+
+async function runInit(tokens) {
+  const options = parseOptions(tokens, INIT_OPTIONS);
+  const root = resolve(options.directory || process.cwd());
+  const files = new Map([
+    ["arena.config.mjs", `export default {
+  version: 1,
+  adapters: ["./arena/document-sharing.adapter.ts"],
+  proof: { require: "pass", output: "arena-proof.json" },
+};
+`],
+    [join("arena", "document-sharing.adapter.ts"), `import { defineOwnedTargetAdapter } from "webmcp-arena/adapter-sdk";
+
+export default defineOwnedTargetAdapter({
+  manifest: {
+    id: "example.document-sharing",
+    version: "1.0.0",
+    claimScope: ["owned_fixture:document-sharing"],
+    trustMode: "server_attested",
+  },
+  targetHarness: {
+    async establish() { throw new Error("Connect your owned test surface"); },
+    async provision() { throw new Error("Seed an isolated document and recipient"); },
+    async release() {},
+  },
+  routeRunner: {
+    async runHuman() { throw new Error("Record the human sharing route"); },
+    async runAgent() { throw new Error("Invoke the registered WebMCP sharing tool"); },
+  },
+  createRecipe() {
+    return {
+      human: { operation: "share_document", recipient: "reviewed@example.test" },
+      agent: { toolName: "share_document", arguments: { recipient: "reviewed@example.test" } },
+    };
+  },
+});
+`],
+    [join(".github", "workflows", "arena.yml"), `name: Arena boundary proof
+on: [pull_request]
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  boundary-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: VasuBansal7576/webmcp-arena@v0.4.0
+        with:
+          mode: proof
+          proof: arena-proof.json
+          require: pass
+`],
+  ]);
+  for (const relativePath of files.keys()) {
+    try {
+      await stat(join(root, relativePath));
+      throw new Error(`refusing to overwrite existing file: ${relativePath}`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  for (const [relativePath, contents] of files) {
+    const destination = join(root, relativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    await writeFile(destination, contents, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  }
+  return {
+    exitCode: 0,
+    stdout: `${JSON.stringify({ status: "initialized", directory: root, files: [...files.keys()] }, null, 2)}\n`,
+    stderr: "",
+  };
+}
+
+async function runVerify(tokens, dependencies) {
+  const [proofPath, ...optionTokens] = tokens;
+  if (!proofPath || proofPath.startsWith("--")) throw new Error("arena verify requires a proof JSON path");
+  const options = parseOptions(optionTokens, VERIFY_OPTIONS);
+  if (options.require && !new Set(["pass", "fail"]).has(options.require)) throw new Error("--require must be pass or fail");
+  const format = options.format || "json";
+  if (!new Set(["json", "sarif", "junit"]).has(format)) throw new Error("--format must be json, sarif, or junit");
+  let proof;
+  try {
+    proof = JSON.parse(await readFile(resolve(proofPath), "utf8"));
+  } catch {
+    throw new Error("proof file is not readable JSON");
+  }
+  const verification = await dependencies.verifyProof(proof);
+  const requiredMet = !options.require || verification.verdict === options.require;
+  const status = verification.valid && requiredMet ? "verified" : "blocked";
+  const report = {
+    kind: "arena.proof_gate",
+    version: 1,
+    status,
+    verdict: verification.verdict || "inconclusive",
+    valid: verification.valid === true,
+    payloadHash: verification.payloadHash || "",
+    ...(verification.reason ? { verificationReason: verification.reason } : {}),
+    ...(!requiredMet ? { reason: "required_verdict_not_met", required: options.require } : {}),
+  };
+  return render({
+    exitCode: status === "verified" ? 0 : 1,
+    format,
+    report: {
+      ...report,
+      findings: status === "verified" ? [] : [{
+        code: report.reason || report.verificationReason || "proof_gate_failed",
+        message: status === "verified" ? "Proof verified." : "The signed behavioral proof did not satisfy the release gate.",
+      }],
+    },
+  });
 }
 
 async function runPreflight(tokens, dependencies) {
