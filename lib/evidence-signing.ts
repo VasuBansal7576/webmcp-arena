@@ -2,6 +2,8 @@ const ATTESTATION_KIND = "arena.evidence_attestation";
 const ATTESTATION_VERSION = 1;
 const ALGORITHM = "Ed25519";
 const SIGNATURE_DOMAIN = "arena.evidence-attestation.v1\0";
+const DISCOVERY_CHALLENGE = new TextEncoder().encode("arena.signing-key-discovery.v1");
+const MAX_ARCHIVED_PUBLIC_KEYS = 64;
 const PUBLIC_JWK_FIELDS = ["alg", "crv", "ext", "key_ops", "kty", "x"];
 const ATTESTATION_FIELDS = [
   "algorithm",
@@ -18,6 +20,7 @@ const ATTESTATION_FIELDS = [
 export type EvidenceSigningEnvironment = {
   ARENA_SIGNING_PRIVATE_JWK?: string;
   ARENA_SIGNING_PUBLIC_JWK?: string;
+  ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS?: string;
   ARENA_ALLOW_EPHEMERAL_SIGNING?: string;
 };
 
@@ -40,12 +43,115 @@ type SigningMaterial = {
   keySource: KeySource;
 };
 
+type TrustedSigningKey = Readonly<{
+  keyId: string;
+  status: "current" | "archived";
+  publicKey: JsonWebKey;
+}>;
+
+export type EvidenceSigningKeySet = Readonly<{
+  kind: "arena.signing_key_set";
+  version: 1;
+  algorithm: typeof ALGORITHM;
+  currentKeyId: string;
+  currentKeySource: KeySource;
+  keys: readonly TrustedSigningKey[];
+}>;
+
+let ephemeralDevelopmentMaterial: Promise<SigningMaterial> | null = null;
+
 export async function signEvidence(bundle: unknown, payloadHash: string) {
   return signEvidenceWithEnvironment(bundle, payloadHash, {
     ARENA_SIGNING_PRIVATE_JWK: process.env.ARENA_SIGNING_PRIVATE_JWK,
     ARENA_SIGNING_PUBLIC_JWK: process.env.ARENA_SIGNING_PUBLIC_JWK,
+    ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS: process.env.ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS,
     ARENA_ALLOW_EPHEMERAL_SIGNING: process.env.ARENA_ALLOW_EPHEMERAL_SIGNING,
   });
+}
+
+export async function getEvidenceSigningPublicKey() {
+  return getEvidenceSigningPublicKeyWithEnvironment({
+    ARENA_SIGNING_PRIVATE_JWK: process.env.ARENA_SIGNING_PRIVATE_JWK,
+    ARENA_SIGNING_PUBLIC_JWK: process.env.ARENA_SIGNING_PUBLIC_JWK,
+    ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS: process.env.ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS,
+    ARENA_ALLOW_EPHEMERAL_SIGNING: process.env.ARENA_ALLOW_EPHEMERAL_SIGNING,
+  });
+}
+
+export async function getEvidenceSigningKeySet() {
+  return getEvidenceSigningKeySetWithEnvironment({
+    ARENA_SIGNING_PRIVATE_JWK: process.env.ARENA_SIGNING_PRIVATE_JWK,
+    ARENA_SIGNING_PUBLIC_JWK: process.env.ARENA_SIGNING_PUBLIC_JWK,
+    ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS: process.env.ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS,
+    ARENA_ALLOW_EPHEMERAL_SIGNING: process.env.ARENA_ALLOW_EPHEMERAL_SIGNING,
+  });
+}
+
+export async function getEvidenceSigningPublicKeyWithEnvironment(environment: EvidenceSigningEnvironment) {
+  try {
+    const material = await loadSigningMaterial(environment);
+    const signature = await crypto.subtle.sign({ name: ALGORITHM }, material.privateKey, DISCOVERY_CHALLENGE);
+    if (!await crypto.subtle.verify({ name: ALGORITHM }, material.publicKey, signature, DISCOVERY_CHALLENGE)) {
+      throw new Error("signing key pair mismatch");
+    }
+    return {
+      kind: "arena.signing_key",
+      version: 1,
+      algorithm: ALGORITHM,
+      keyId: await createKeyId(material.publicJwk),
+      keySource: material.keySource,
+      publicKey: material.publicJwk,
+    };
+  } catch {
+    throw new Error("Arena signing identity is unavailable");
+  }
+}
+
+export async function getEvidenceSigningKeySetWithEnvironment(
+  environment: EvidenceSigningEnvironment,
+): Promise<EvidenceSigningKeySet> {
+  try {
+    const current = await getEvidenceSigningPublicKeyWithEnvironment(environment);
+    const archivedPublicKeys = await loadArchivedPublicKeys(environment.ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS);
+    const keysById = new Map<string, TrustedSigningKey>();
+    keysById.set(current.keyId, Object.freeze({
+      keyId: current.keyId,
+      status: "current",
+      publicKey: current.publicKey,
+    }));
+
+    for (const publicKey of archivedPublicKeys) {
+      const keyId = await createKeyId(publicKey);
+      if (!keysById.has(keyId)) {
+        keysById.set(keyId, Object.freeze({ keyId, status: "archived", publicKey }));
+      }
+    }
+
+    const currentKey = keysById.get(current.keyId);
+    if (!currentKey) throw new Error("current signing key is missing from its trusted key set");
+    const archivedKeys = [...keysById.values()]
+      .filter(({ status }) => status === "archived")
+      .sort((left, right) => left.keyId.localeCompare(right.keyId));
+    return Object.freeze({
+      kind: "arena.signing_key_set",
+      version: 1,
+      algorithm: ALGORITHM,
+      currentKeyId: current.keyId,
+      currentKeySource: current.keySource,
+      keys: Object.freeze([currentKey, ...archivedKeys]),
+    });
+  } catch {
+    throw new Error("Arena signing key set is unavailable");
+  }
+}
+
+export function resolveEvidenceSigningKey(
+  keySet: EvidenceSigningKeySet,
+  attestation: unknown,
+): TrustedSigningKey | null {
+  if (!isRecord(attestation) || typeof attestation.keyId !== "string") return null;
+  if (!/^ed25519:[A-Za-z0-9_-]{43}$/.test(attestation.keyId)) return null;
+  return keySet.keys.find(({ keyId }) => keyId === attestation.keyId) || null;
 }
 
 export async function signEvidenceWithEnvironment(
@@ -151,6 +257,11 @@ async function loadSigningMaterial(environment: EvidenceSigningEnvironment): Pro
   if (environment.ARENA_ALLOW_EPHEMERAL_SIGNING !== "true") {
     throw new Error("Arena signing keys are not configured");
   }
+  ephemeralDevelopmentMaterial ??= createEphemeralDevelopmentMaterial();
+  return ephemeralDevelopmentMaterial;
+}
+
+async function createEphemeralDevelopmentMaterial(): Promise<SigningMaterial> {
   const generated = await crypto.subtle.generateKey(
     { name: ALGORITHM },
     true,
@@ -201,6 +312,31 @@ function parseJwk(value: string, label: string) {
   }
   if (!isRecord(parsed)) throw new Error(`Arena ${label} signing key must be a JSON Web Key`);
   return parsed;
+}
+
+async function loadArchivedPublicKeys(value: string | undefined) {
+  const configured = configuredValue(value);
+  if (!configured) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(configured);
+  } catch {
+    throw new Error("Arena archived signing keys must be a JSON array of public JWKs");
+  }
+  if (!Array.isArray(parsed) || parsed.length > MAX_ARCHIVED_PUBLIC_KEYS) {
+    throw new Error(`Arena archived signing keys must contain at most ${MAX_ARCHIVED_PUBLIC_KEYS} public JWKs`);
+  }
+
+  const publicKeys = parsed.map(normalizePublicJwk);
+  await Promise.all(publicKeys.map((publicKey) => crypto.subtle.importKey(
+    "jwk",
+    publicKey,
+    { name: ALGORITHM },
+    false,
+    ["verify"],
+  )));
+  return publicKeys;
 }
 
 function normalizePrivateJwk(candidate: unknown): JsonWebKey {

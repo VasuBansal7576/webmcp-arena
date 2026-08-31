@@ -10,9 +10,13 @@ export function createAuditStore(getDb) {
     const db = await getDb();
     const createdAt = Date.parse(String(record.createdAt));
     const updatedAt = Date.parse(String(record.updatedAt));
-    const expiresAt = Date.parse(String(record.expiresAt));
-    await db.prepare("INSERT INTO audits (id, idempotency_key, version, state, created_at, updated_at, expires_at, lease_id, lease_expires_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)")
-      .bind(record.id, idempotencyKey, record.version, record.state, createdAt, updatedAt, expiresAt, JSON.stringify(record)).run();
+    const approvalExpiresAt = Date.parse(String(record.approvalExpiresAt));
+    const retentionUntil = Date.parse(String(record.retentionUntil));
+    if (!Number.isFinite(approvalExpiresAt) || !Number.isFinite(retentionUntil) || retentionUntil <= approvalExpiresAt) {
+      throw new TypeError("audit retention must outlive its approval window");
+    }
+    await db.prepare("INSERT INTO audits (id, idempotency_key, version, state, created_at, updated_at, expires_at, retention_until, lease_id, lease_expires_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)")
+      .bind(record.id, idempotencyKey, record.version, record.state, createdAt, updatedAt, approvalExpiresAt, retentionUntil, JSON.stringify(record)).run();
   }
 
   async function loadAudit(id) {
@@ -72,12 +76,16 @@ export function createAuditStore(getDb) {
       method: "one_time_interface_session_capability",
       nonceId: privateApproval.nonceId,
       approvedAt: updatedAt,
-      expiresAt: record.expiresAt,
+      expiresAt: record.approvalExpiresAt,
       sessionCommitment: privateApproval.sessionHash,
       reviewerClaim: "same_origin_interface_session_controller",
       assuranceClaim: "session_capability_verified_human_presence_not_attested",
       reviewedContractHash: review.contractHash,
       reviewedTargetHash: review.targetHash,
+      reviewedReleaseHash: review.releaseHash,
+      reviewedAgentHash: review.agentHash,
+      reviewedPrincipalHash: review.principalHash,
+      reviewedToolDefinitionHash: review.toolDefinitionHash,
       reviewedToolHash: review.toolHash,
       reviewedArgumentsHash: review.argumentsHash,
     };
@@ -91,6 +99,10 @@ export function createAuditStore(getDb) {
         AND json_extract(payload, '$.privateApproval.nonceId') = ?
         AND json_extract(payload, '$.review.contractHash') = ?
         AND json_extract(payload, '$.review.targetHash') = ?
+        AND json_extract(payload, '$.review.releaseHash') = ?
+        AND json_extract(payload, '$.review.agentHash') = ?
+        AND json_extract(payload, '$.review.principalHash') = ?
+        AND json_extract(payload, '$.review.toolDefinitionHash') = ?
         AND json_extract(payload, '$.review.toolHash') = ?
         AND json_extract(payload, '$.review.argumentsHash') = ?`)
       .bind(
@@ -106,6 +118,10 @@ export function createAuditStore(getDb) {
         privateApproval.nonceId,
         review.contractHash,
         review.targetHash,
+        review.releaseHash,
+        review.agentHash,
+        review.principalHash,
+        review.toolDefinitionHash,
         review.toolHash,
         review.argumentsHash,
       ).run();
@@ -128,7 +144,7 @@ export function createAuditStore(getDb) {
         !isPrivateApproval(previous) ||
         !isPrivateApproval(privateApproval) ||
         previous.sessionHash !== privateApproval.sessionHash ||
-        Date.parse(String(record.expiresAt)) <= now) return false;
+        Date.parse(String(record.approvalExpiresAt)) <= now) return false;
 
     const db = await getDb();
     const previousUpdatedAt = Date.parse(String(record.updatedAt));
@@ -178,24 +194,71 @@ export function createAuditStore(getDb) {
       if (await markFailedIfCurrent(db, row, now, reason)) failed += 1;
     }
 
-    const deletion = await db.prepare("DELETE FROM audits WHERE id IN (SELECT id FROM audits WHERE expires_at < ? AND state IN ('completed', 'failed') ORDER BY expires_at LIMIT ?)")
+    const deletion = await db.prepare("DELETE FROM audits WHERE id IN (SELECT id FROM audits WHERE retention_until < ? AND state IN ('completed', 'failed') ORDER BY retention_until LIMIT ?)")
       .bind(now, limit).run();
     return { failed, pruned: Number(deletion?.meta?.changes || 0) };
   }
 
+  async function consumeAuditStartLimit({ bucketKey, now, limit, windowMs }) {
+    if (!/^audit-start:v1:[A-Za-z0-9_-]{16,128}$/.test(bucketKey || "")) {
+      throw new TypeError("an audit start limit bucket commitment is required");
+    }
+    if (!Number.isInteger(now) || !Number.isInteger(limit) || limit < 1 || limit > 1_000 ||
+        !Number.isInteger(windowMs) || windowMs < 1_000 || windowMs > 3_600_000) {
+      throw new TypeError("audit start limit timing is invalid");
+    }
+
+    const db = await getDb();
+    const nextResetAt = now + windowMs;
+    const result = await db.prepare(`INSERT INTO audit_start_limits (bucket_key, request_count, reset_at)
+      VALUES (?, 1, ?)
+      ON CONFLICT(bucket_key) DO UPDATE SET
+        request_count = CASE
+          WHEN audit_start_limits.reset_at <= ? THEN 1
+          ELSE audit_start_limits.request_count + 1
+        END,
+        reset_at = CASE
+          WHEN audit_start_limits.reset_at <= ? THEN excluded.reset_at
+          ELSE audit_start_limits.reset_at
+        END
+      WHERE audit_start_limits.reset_at <= ?
+         OR audit_start_limits.request_count < ?`)
+      .bind(bucketKey, nextResetAt, now, now, now, limit).run();
+    const row = await db.prepare("SELECT reset_at FROM audit_start_limits WHERE bucket_key = ?")
+      .bind(bucketKey).first();
+    if (!row || !Number.isInteger(Number(row.reset_at))) {
+      throw new Error("audit start limit storage did not return a reset boundary");
+    }
+    return { allowed: changed(result), resetAt: Number(row.reset_at) };
+  }
+
+  async function pruneExpiredAuditStartLimits(now, limit = 100) {
+    if (!Number.isInteger(now) || !Number.isInteger(limit) || limit < 1 || limit > 1_000) {
+      throw new TypeError("audit start limit cleanup timing is invalid");
+    }
+    const db = await getDb();
+    const deletion = await db.prepare(`DELETE FROM audit_start_limits
+      WHERE bucket_key IN (
+        SELECT bucket_key FROM audit_start_limits WHERE reset_at <= ? ORDER BY reset_at LIMIT ?
+      )`).bind(now, limit).run();
+    return Number(deletion?.meta?.changes || 0);
+  }
+
   return Object.freeze({
     claimApproval,
+    consumeAuditStartLimit,
     insertAudit,
     loadAudit,
     loadAuditByIdempotencyKey,
     pruneExpiredAudits,
+    pruneExpiredAuditStartLimits,
     rotateApprovalCapability,
     saveAudit,
   });
 }
 
 async function loadAuditRow(db, id) {
-  return db.prepare("SELECT id, state, updated_at, expires_at, lease_id, lease_expires_at, payload FROM audits WHERE id = ?")
+  return db.prepare("SELECT id, state, updated_at, expires_at, retention_until, lease_id, lease_expires_at, payload FROM audits WHERE id = ?")
     .bind(id).first();
 }
 
@@ -239,7 +302,16 @@ function isPrivateApproval(value) {
 }
 
 function isReviewBinding(value) {
-  return value && [value.contractHash, value.targetHash, value.toolHash, value.argumentsHash]
+  return value && [
+    value.contractHash,
+    value.targetHash,
+    value.releaseHash,
+    value.agentHash,
+    value.principalHash,
+    value.toolDefinitionHash,
+    value.toolHash,
+    value.argumentsHash,
+  ]
     .every((digest) => DIGEST.test(digest || ""));
 }
 

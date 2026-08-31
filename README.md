@@ -30,7 +30,7 @@ The workflow is intentionally split:
 5. Arena runs the agent route, waits for a terminal effect-settlement watermark, and records the final backend state.
 6. The workbench verifies and displays the signed evidence bundle.
 
-Caller-authored recipes, routes, traces, evidence, and approval claims are rejected. The reviewer can be a human or an authorized browser agent; Arena proves that the WebMCP route cannot silently bypass the reviewed interface boundary. Cryptographic human presence is a separate, optional assurance tier.
+Caller-authored recipes, routes, traces, evidence, and approval claims are rejected. The reviewer can be a human or an authorized browser agent. This hosted proof measures Arena's owned server-attested route adapter; it does not claim that the target execution traversed a browser's native WebMCP channel. Cryptographic human presence is a separate, optional assurance tier.
 
 ## Run locally
 
@@ -51,12 +51,16 @@ npm run build:site
 npm run start:site -- --port 4174
 ```
 
-Open `http://127.0.0.1:4174`. The local hosted command explicitly enables ephemeral signing for development. Production fails closed and uses a configured Ed25519 key pair.
+Open `http://127.0.0.1:4174`. The local hosted command explicitly enables one process-local signing identity for development, including public-key discovery and proof verification; it resets when the process restarts. Production fails closed and uses a configured Ed25519 key pair.
 
 The hosted challenge application registers exactly two tools through the real Promise-returning `document.modelContext.registerTool(...)` API:
 
-- `start_measured_checkout_audit`
-- `get_measured_audit_status`
+- `start_generated_release_audit`
+- `get_generated_release_audit_status`
+
+The start tool prepares a server-owned, standards-shaped generated WebMCP manifest for visible exact-intent review. Arena binds the release, transitive owned-execution-stack artifact digest, claimed agent, tool definition, arguments, target, contract, browser session, nonce, and expiry before it executes the owned human and agent route adapter. The status tool is read-only. Neither tool can approve or execute a consequential route. `/checkout` separately registers a real `preview_checkout` tool on `document.modelContext`; that page is an unsigned interactive standards demo and is never substituted for the server-attested evidence.
+
+Completed hosted evidence is checked twice: a pure semantic verifier recomputes its release, target, account, agent, tool, argument, contract, coverage, and authorization-probe bindings, then Ed25519 verification resolves the signed key ID against the deployment trust set published at `/.well-known/arena-signing-keys.json`. The embedded public key is never treated as its own trust root. The singular `/.well-known/arena-signing-key.json` endpoint remains available for current-key compatibility, but portable proofs use the versioned trust set.
 
 The full local workbench additionally registers:
 
@@ -143,6 +147,9 @@ The hosted challenge application fails closed unless both members of one verifie
 
 - `ARENA_SIGNING_PRIVATE_JWK`: private JWK JSON, stored as a secret.
 - `ARENA_SIGNING_PUBLIC_JWK`: matching public JWK JSON.
+- `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS`: optional JSON array containing at most 64 retired public Ed25519 JWKs; it becomes required when keys rotate.
+
+Rotate signing keys in two phases. First add the current public key to `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` and deploy without changing the active pair. Then deploy the new private/public pair while keeping the retired key in the archive. Retain every retired key through the latest proof `retentionUntil`, and for at least 30 days after the last proof signed by that key. Removing it earlier makes an otherwise intact portable proof unverifiable.
 
 `ARENA_ALLOW_EPHEMERAL_SIGNING=true` is for local development only and must not be enabled in production.
 

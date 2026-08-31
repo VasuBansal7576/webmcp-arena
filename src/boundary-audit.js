@@ -262,6 +262,8 @@ export async function verifyAuditBundle(bundle, trustedVerifier = null) {
   }
   if (!Array.isArray(body.events)) return { valid: false, reason: "event_chain_invalid" };
   let previousEventHash = null;
+  let previousObservedAt = Number.NEGATIVE_INFINITY;
+  const generatedAt = Date.parse(body.generatedAt);
   for (let index = 0; index < body.events.length; index += 1) {
     const event = body.events[index];
     if (!hasExactKeys(event, ["eventHash", "eventId", "observedAt", "payload", "payloadHash", "previousEventHash", "provenance", "route", "sequence"]) ||
@@ -275,6 +277,11 @@ export async function verifyAuditBundle(bundle, trustedVerifier = null) {
       return { valid: false, reason: "event_chain_invalid" };
     }
     if (digest(stableJson(eventBody.payload)) !== eventBody.payloadHash) return { valid: false, reason: "event_payload_hash_invalid" };
+    const observedAt = Date.parse(eventBody.observedAt);
+    if (observedAt < previousObservedAt || observedAt > generatedAt) {
+      return { valid: false, reason: "event_chronology_invalid" };
+    }
+    previousObservedAt = observedAt;
     previousEventHash = eventHash;
   }
   if (!hasExactKeys(body.contract, ["baselineEvidence", "effects", "invariants", "kind", "version"]) ||

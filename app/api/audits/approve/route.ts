@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   const claimed = await claimApproval({ id: auditId, now: Date.now(), proof });
   if (claimed.status === "missing") return Response.json({ error: "audit not found" }, { status: 404 });
   if (claimed.status === "expired") return Response.json({ error: "review window expired; start a new audit" }, { status: 410 });
-  if (claimed.status === "completed") return noStore(publicHostedAudit(claimed.record));
+  if (claimed.status === "completed") return noStore(await publicHostedAudit(claimed.record));
   if (claimed.status === "invalid") {
     return Response.json({ error: "approval capability is invalid or belongs to another browser session" }, { status: 403 });
   }
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     record.updatedAt = new Date().toISOString();
     record.history = [...record.history, { state: "completed", at: record.updatedAt }];
     await saveAudit(record, { expectedState: "waiting_for_effects", leaseId, releaseLease: true });
-    return noStore(publicHostedAudit(record));
+    return noStore(await publicHostedAudit(record));
   } catch (error) {
     console.error("Arena audit execution failed", error);
     record.state = "failed";

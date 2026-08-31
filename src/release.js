@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const RELEASE_SOURCES = [
@@ -13,8 +13,10 @@ const RELEASE_SOURCES = [
   "src/boundary-audit.js",
   "src/checkout-audit-adapter.js",
   "src/checkout-fixture.js",
+  "src/checkout-release-artifacts.js",
   "src/ci-report.js",
   "src/effect-settlement.js",
+  "src/generated-release-audit.js",
   "src/gym-audit-adapter.js",
   "src/gym-fixture.js",
   "src/identity.js",
@@ -42,13 +44,15 @@ const RETIRED_SOURCES = [
 
 export async function runReleaseCheck({ root = process.cwd() } = {}) {
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
-  const [action, readme, contributing, license, arenaPage, ciWorkflow] = await Promise.all([
+  const [action, readme, contributing, license, arenaPage, ciWorkflow, d1Runtime, nextConfig] = await Promise.all([
     text(root, "action.yml"),
     text(root, "README.md"),
     text(root, "CONTRIBUTING.md"),
     text(root, "LICENSE"),
     text(root, "src/arena-page.js"),
     text(root, ".github/workflows/ci.yml"),
+    text(root, "db/runtime.ts"),
+    text(root, "next.config.ts"),
   ]);
   const packagedScripts = [
     "scripts/arena-server.js",
@@ -78,6 +82,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     exists(root, "scripts/solo-server.js"),
   ])).some(Boolean);
   const retiredSourcePresent = (await Promise.all(RETIRED_SOURCES.map((path) => exists(root, path)))).some(Boolean);
+  const unwiredD1ArtifactsPresent = await containsFiles(root, "drizzle");
   const packageFilesExact = JSON.stringify([...(pkg.files || [])].sort()) === JSON.stringify([...requiredPackageFiles].sort());
   const checks = [
     check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.2.0", "package must use the WebMCP Arena release identity"),
@@ -94,6 +99,25 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     check("webmcp_registration", arenaPage.includes("document.modelContext") && arenaPage.includes("registerTool"), "Arena web UI must register real document.modelContext tools"),
     check("action_uses_arena", action.includes("Arena WebMCP Preflight") && action.includes("bin/arena.js") && action.includes("preflight") && !action.includes("bin/agent-contract.js"), "composite action must run the Arena WebMCP preflight CLI"),
     check("action_runtime_safe", action.includes("actions/setup-node@v7") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22 on a current action runtime, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
+    check(
+      "hosted_d1_schema_authority",
+      !unwiredD1ArtifactsPresent
+        && d1Runtime.includes("createAuditDatabaseProvider")
+        && d1Runtime.includes("PURGE_INCOMPATIBLE_AUDITS_SQL")
+        && d1Runtime.includes("json_type(payload, '$.retentionUntil') IS NOT 'text'"),
+      "the Sites runtime must be the single D1 schema authority and explicitly purge incompatible legacy audit rows",
+    ),
+    check(
+      "hosted_signing_key_rotation",
+      nextConfig.includes('source: "/.well-known/arena-signing-keys.json"')
+        && readme.includes("`/.well-known/arena-signing-keys.json`")
+        && readme.includes("`ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS`")
+        && readme.includes("at most 64 retired public Ed25519 JWKs")
+        && readme.includes("Rotate signing keys in two phases")
+        && readme.includes("latest proof `retentionUntil`")
+        && readme.includes("at least 30 days"),
+      "the hosted release must publish the versioned trust set and document its bounded two-phase key-rotation policy",
+    ),
     check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.2.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the versioned Arena action and retain reports when inspection fails"),
     check(
       "ci_workflow",
@@ -135,4 +159,17 @@ async function exists(root, path) {
 
 function text(root, path) {
   return readFile(join(root, path), "utf8").catch(() => "");
+}
+
+async function containsFiles(root, path) {
+  try {
+    const entries = await readdir(join(root, path), { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile()) return true;
+      if (entry.isDirectory() && await containsFiles(root, join(path, entry.name))) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }

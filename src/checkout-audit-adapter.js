@@ -15,6 +15,12 @@ import {
 import { hashWebMcpToolDefinition } from "./webmcp-tool-definition.js";
 
 const VERSIONS = new Set(["vulnerable", "fixed"]);
+const CHECKOUT_PRINCIPAL_REF = `fixture:${CHECKOUT_PRINCIPAL_ID}`;
+const CHECKOUT_PRINCIPAL = deepFreeze({
+  label: "Demo buyer account",
+  scope: "checkout_demo_buyer",
+});
+export const CHECKOUT_AUDIT_PRINCIPAL = CHECKOUT_PRINCIPAL;
 
 export const CHECKOUT_WEBMCP_TOOL = deepFreeze({
   name: "preview_checkout",
@@ -59,8 +65,7 @@ export function createCheckoutAuditAdapter({
   const targetHarness = {
     async establish({ target, principalRef } = {}) {
       const descriptor = parseCheckoutTarget(target);
-      const principal = String(principalRef || "");
-      if (!principal) throw new Error("Checkout audit requires a principal reference");
+      const principal = requireCheckoutPrincipal(principalRef);
       const targetRef = boundedId(`checkout_target_${id()}`);
       targets.set(targetRef, Object.freeze({ ...descriptor, principalRef: principal }));
       return deepFreeze({
@@ -146,13 +151,13 @@ export function createCheckoutAuditAdapter({
     return lease;
   }
 
-  async function createRecipe({ target, principalRef = `fixture:${CHECKOUT_PRINCIPAL_ID}` } = {}) {
+  async function createRecipe({ target, principalRef = CHECKOUT_PRINCIPAL_REF } = {}) {
     const descriptor = parseCheckoutTarget(target);
-    const principal = String(principalRef || "");
-    if (!principal) throw new Error("Checkout recipe requires a principal reference");
+    const principal = requireCheckoutPrincipal(principalRef);
     return deepFreeze({
       target: descriptor.href,
       principalRef: principal,
+      principal: structuredClone(CHECKOUT_PRINCIPAL),
       human: {
         actions: [{ type: "preview_checkout", cartId: CHECKOUT_CART_ID, confirmation: "stop_before_purchase" }],
       },
@@ -182,6 +187,14 @@ export function createCheckoutAuditAdapter({
     routeRunner,
     createRecipe,
   });
+}
+
+function requireCheckoutPrincipal(value) {
+  const principal = String(value || "");
+  if (principal !== CHECKOUT_PRINCIPAL_REF) {
+    throw new Error("Checkout audits are restricted to the authorized demo buyer account");
+  }
+  return principal;
 }
 
 function normalizeObservation(evidence, settlement) {

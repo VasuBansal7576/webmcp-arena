@@ -1,0 +1,741 @@
+.page {
+  min-height: 100vh;
+  color: #f4f5f2;
+  background:
+    radial-gradient(circle at 86% 4%, rgba(186, 255, 99, 0.09), transparent 26rem),
+    #080a09;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px clamp(18px, 4vw, 64px);
+  border-bottom: 1px solid #252b27;
+  background: rgba(8, 10, 9, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #f4f5f2;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.brand span,
+.ticketMark {
+  display: grid;
+  place-items: center;
+  color: #10150c;
+  background: #baff63;
+  font-weight: 950;
+}
+
+.brand span {
+  width: 29px;
+  height: 29px;
+  border-radius: 8px;
+}
+
+.runtimeStrip {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.runtimeStrip span {
+  padding: 5px 9px;
+  color: #9fa59f;
+  border: 1px solid #293029;
+  border-radius: 999px;
+  background: #0c0f0d;
+  font: 650 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+}
+
+.runtimeStrip .ok {
+  color: #baff63;
+  border-color: rgba(186, 255, 99, 0.28);
+  background: rgba(186, 255, 99, 0.05);
+}
+
+.hero,
+.modeBar,
+.checkoutShell,
+.routeGrid,
+.contractGrid,
+.disclaimer {
+  width: min(1280px, calc(100% - 36px));
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  align-items: end;
+  gap: clamp(28px, 5vw, 76px);
+  padding: clamp(62px, 8vw, 112px) 0 44px;
+}
+
+.modeGate {
+  width: min(620px, 100%);
+  margin: clamp(90px, 18vh, 190px) auto 0;
+  padding: 36px;
+  border: 1px solid #29302b;
+  border-radius: 16px;
+  background: #101311;
+  text-align: center;
+}
+
+.modeGate h1 {
+  margin: 11px 0 13px;
+  font-size: clamp(30px, 5vw, 48px);
+}
+
+.modeGate p:last-child {
+  margin: 0 auto;
+  color: #9aa09a;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.hero h1 {
+  max-width: 860px;
+  margin: 0;
+  font-size: clamp(52px, 7.3vw, 106px);
+  line-height: 0.86;
+  letter-spacing: -0.075em;
+}
+
+.hero h1 em {
+  display: inline;
+  color: #858c85;
+  font-style: normal;
+}
+
+.eyebrow {
+  margin: 0 0 13px;
+  color: #baff63;
+  font: 800 10px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lede {
+  max-width: 510px;
+  margin: 0 0 7px;
+  color: #c5cac5;
+  font-size: clamp(16px, 1.65vw, 22px);
+  line-height: 1.48;
+}
+
+.lede code,
+.contractCard code {
+  color: #baff63;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.disclaimer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(246, 188, 102, 0.24);
+  border-radius: 12px;
+  background: rgba(246, 188, 102, 0.045);
+}
+
+.disclaimer strong {
+  color: #f6bc66;
+  font-size: 13px;
+}
+
+.disclaimer p {
+  margin: 0;
+  color: #a8aea8;
+  font-size: 12px;
+}
+
+.disclaimer a {
+  color: #f4f5f2;
+  font-size: 12px;
+  font-weight: 750;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.modeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  padding: 26px 0 18px;
+}
+
+.modeBar h2,
+.orderHeader h2,
+.routeHeading h2 {
+  margin: 0;
+  letter-spacing: -0.04em;
+}
+
+.modeBar h2 {
+  font-size: clamp(25px, 3vw, 39px);
+  line-height: 1;
+}
+
+.modeToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: min(100%, 440px);
+  padding: 4px;
+  border: 1px solid #2b312d;
+  border-radius: 14px;
+  background: #0b0e0c;
+}
+
+.modeToggle button {
+  min-height: 58px;
+  padding: 9px 14px;
+  color: #919791;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.modeToggle button span,
+.modeToggle button small {
+  display: block;
+}
+
+.modeToggle button span {
+  margin-bottom: 3px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.modeToggle button small {
+  color: #717771;
+  font-size: 10px;
+}
+
+.modeToggle button[aria-pressed="true"] {
+  color: #10150c;
+  border-color: #baff63;
+  background: #baff63;
+}
+
+.modeToggle button[aria-pressed="true"] small {
+  color: rgba(16, 21, 12, 0.7);
+}
+
+.checkoutShell {
+  overflow: hidden;
+  margin-bottom: 12px;
+  border: 1px solid #29302b;
+  border-radius: 16px;
+  background: #101311;
+}
+
+.orderHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 26px 28px;
+  border-bottom: 1px solid #29302b;
+}
+
+.orderHeader h2 {
+  font-size: clamp(28px, 3.2vw, 44px);
+  line-height: 1;
+}
+
+.price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.price small {
+  color: #8f958f;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.price strong {
+  color: #baff63;
+  font-size: clamp(28px, 3.4vw, 46px);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.orderLine {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 17px;
+  padding: 21px 28px;
+  border-bottom: 1px solid #29302b;
+}
+
+.ticketMark {
+  width: 45px;
+  height: 45px;
+  border-radius: 12px;
+  font-size: 18px;
+}
+
+.orderLine div:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.orderLine div:nth-child(2) strong {
+  font-size: 16px;
+}
+
+.orderLine div:nth-child(2) span {
+  color: #8f958f;
+  font-size: 12px;
+}
+
+.orderLine code {
+  color: #949a94;
+  font: 600 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.protectionLine {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 28px;
+  background: #0c0f0d;
+}
+
+.protectionLine > span:first-child {
+  color: #858b85;
+  font-size: 11px;
+}
+
+.protectionLine strong {
+  font-size: 12px;
+}
+
+.required,
+.routeStatus {
+  padding: 5px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font: 750 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.required {
+  color: #f6bc66;
+  border-color: rgba(246, 188, 102, 0.3);
+}
+
+.routeGrid,
+.contractGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.routeCard,
+.contractCard,
+.evidenceCard {
+  border: 1px solid #29302b;
+  border-radius: 16px;
+  background: #101311;
+}
+
+.routeCard {
+  min-height: 465px;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.agentCard {
+  border-color: rgba(186, 255, 99, 0.25);
+  background: #0d110e;
+}
+
+.page[data-mode="vulnerable"] .agentCard {
+  border-color: rgba(255, 123, 123, 0.3);
+}
+
+.routeHeading,
+.routeHeading > div,
+.cardHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.routeHeading > div {
+  justify-content: flex-start;
+}
+
+.routeIndex {
+  color: #baff63;
+  font: 750 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.routeHeading h2 {
+  font-size: 24px;
+}
+
+.routeStatus {
+  color: #7ee2a0;
+  border-color: rgba(126, 226, 160, 0.28);
+}
+
+.routeStatus.danger {
+  color: #ff9b9b;
+  border-color: rgba(255, 123, 123, 0.34);
+}
+
+.routeCard > p {
+  min-height: 42px;
+  margin: 13px 0;
+  color: #9aa09a;
+  font-size: 13px;
+}
+
+.channelLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  margin-bottom: 13px;
+  padding: 8px 10px;
+  border: 1px solid #29302b;
+  border-radius: 9px;
+  background: #0a0d0b;
+}
+
+.channelLine span {
+  color: #7d837d;
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.channelLine code {
+  color: #baff63;
+  font: 700 10px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.timeline {
+  flex: 1;
+  overflow: hidden;
+  min-height: 238px;
+  border: 1px solid #252b27;
+  border-radius: 12px;
+  background: #0a0d0b;
+}
+
+.emptyEvent {
+  min-height: 238px;
+  display: grid;
+  place-items: center;
+  color: #686e68;
+  font-size: 12px;
+}
+
+.eventRow {
+  display: grid;
+  grid-template-columns: 38px 1fr auto;
+  align-items: start;
+  gap: 10px;
+  padding: 13px 14px;
+  border-bottom: 1px solid #252b27;
+  animation: event-in 240ms ease-out both;
+}
+
+.eventRow:last-child {
+  border-bottom: 0;
+}
+
+.eventRow > span,
+.eventRow time {
+  color: #666c66;
+  font: 650 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.eventRow div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.eventRow strong {
+  font-size: 12px;
+}
+
+.eventRow small {
+  color: #858b85;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.eventDanger {
+  background: rgba(255, 123, 123, 0.07);
+}
+
+.eventDanger strong,
+.eventDanger time {
+  color: #ff9b9b;
+}
+
+.runButton {
+  min-height: 48px;
+  margin-top: 14px;
+  padding: 0 18px;
+  color: #10150c;
+  border: 0;
+  border-radius: 11px;
+  background: #baff63;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 850;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.runButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.runButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.contractCard,
+.evidenceCard {
+  overflow: hidden;
+}
+
+.cardHeading {
+  min-height: 51px;
+  padding: 13px 18px;
+  border-bottom: 1px solid #29302b;
+}
+
+.cardHeading span {
+  color: #baff63;
+  font: 750 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cardHeading strong {
+  color: #7d837d;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.contractCard dl {
+  margin: 0;
+  padding: 13px 18px 18px;
+  border: 0;
+}
+
+.contractCard dl div {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid #242a26;
+}
+
+.contractCard dl div:last-child {
+  border-bottom: 0;
+}
+
+.contractCard dt {
+  color: #858b85;
+  font-size: 11px;
+}
+
+.contractCard dd {
+  margin: 0;
+  color: #d5d8d5;
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.evidenceOutput {
+  min-height: 235px;
+  display: block;
+  overflow: auto;
+  margin: 0;
+  padding: 17px 18px;
+  color: #a9f0bc;
+  background: #090c0a;
+  font: 600 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 28px;
+  margin-top: 64px;
+  padding: 28px clamp(18px, 4vw, 64px);
+  color: #858b85;
+  border-top: 1px solid #252b27;
+  font-size: 12px;
+}
+
+.footer strong {
+  color: #f4f5f2;
+}
+
+.footer a {
+  color: #baff63;
+  text-decoration: none;
+}
+
+.modeToggle button:focus-visible,
+.runButton:focus-visible,
+.brand:focus-visible,
+.disclaimer a:focus-visible,
+.footer a:focus-visible {
+  outline: 3px solid rgba(186, 255, 99, 0.42);
+  outline-offset: 3px;
+}
+
+@keyframes event-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .routeGrid,
+  .contractGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    gap: 26px;
+  }
+
+  .disclaimer {
+    grid-template-columns: 1fr;
+  }
+
+  .disclaimer a {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 680px) {
+  .runtimeStrip span:nth-child(2),
+  .runtimeStrip span:nth-child(3) {
+    display: none;
+  }
+
+  .hero,
+  .modeBar,
+  .checkoutShell,
+  .routeGrid,
+  .contractGrid,
+  .disclaimer {
+    width: min(100% - 20px, 1280px);
+  }
+
+  .hero {
+    padding-top: 54px;
+  }
+
+  .hero h1 {
+    font-size: 52px;
+  }
+
+  .modeBar,
+  .orderHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .modeBar {
+    display: flex;
+  }
+
+  .modeToggle {
+    width: 100%;
+  }
+
+  .price {
+    align-items: flex-start;
+  }
+
+  .orderLine,
+  .protectionLine {
+    grid-template-columns: auto 1fr;
+  }
+
+  .orderLine code,
+  .protectionLine .required {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .routeCard {
+    min-height: 440px;
+    padding: 19px;
+  }
+
+  .eventRow {
+    grid-template-columns: 32px 1fr;
+  }
+
+  .eventRow time {
+    display: none;
+  }
+
+  .footer {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eventRow {
+    animation: none;
+  }
+
+  .runButton {
+    transition: none;
+  }
+}

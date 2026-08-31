@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { createAuditStore } from "../src/audit-store-core.js";
+import { admitAuditStart } from "../src/audit-capability.js";
 import { completeHostedAudit, createHostedAudit } from "../src/hosted-audit.js";
 
 const NOW = Date.parse("2026-08-30T12:00:00.000Z");
@@ -13,6 +14,10 @@ const HASHES = Object.freeze({
   targetHash: "T".repeat(43),
   toolHash: "W".repeat(43),
   argumentsHash: "A".repeat(43),
+  releaseHash: "R".repeat(43),
+  agentHash: "G".repeat(43),
+  principalHash: "P".repeat(43),
+  toolDefinitionHash: "D".repeat(43),
 });
 
 test("a rotated capability cannot claim the new nonce, even when timestamps collide", async (t) => {
@@ -44,7 +49,11 @@ test("a rotated capability cannot claim the new nonce, even when timestamps coll
   assert.equal(currentClaim.record.approval.sessionCommitment, HASHES.sessionHash);
   assert.equal(currentClaim.record.approval.reviewerClaim, "same_origin_interface_session_controller");
   assert.equal(currentClaim.record.approval.assuranceClaim, "session_capability_verified_human_presence_not_attested");
-  assert.equal(currentClaim.record.approval.expiresAt, original.expiresAt);
+  assert.equal(currentClaim.record.approval.expiresAt, original.approvalExpiresAt);
+  assert.equal(currentClaim.record.approval.reviewedReleaseHash, HASHES.releaseHash);
+  assert.equal(currentClaim.record.approval.reviewedAgentHash, HASHES.agentHash);
+  assert.equal(currentClaim.record.approval.reviewedPrincipalHash, HASHES.principalHash);
+  assert.equal(currentClaim.record.approval.reviewedToolDefinitionHash, HASHES.toolDefinitionHash);
 });
 
 test("only one concurrent request can consume an approval capability", async (t) => {
@@ -97,9 +106,9 @@ test("expired execution leases fail closed and are never reclaimed by approval",
 
 test("cleanup fails stale running and waiting rows, preserves active work, and prunes expired failures", async (t) => {
   const { store, db } = testStore(t);
-  const staleRunning = auditRecord({ id: auditId(5), state: "running", expiresAt: NOW + 60_000 });
-  const staleWaiting = auditRecord({ id: auditId(6), state: "waiting_for_effects", expiresAt: NOW - 1 });
-  const active = auditRecord({ id: auditId(7), state: "running", expiresAt: NOW + 60_000 });
+  const staleRunning = auditRecord({ id: auditId(5), state: "running", approvalExpiresAt: NOW + 60_000 });
+  const staleWaiting = auditRecord({ id: auditId(6), state: "waiting_for_effects", approvalExpiresAt: NOW - 2, retentionUntil: NOW - 1 });
+  const active = auditRecord({ id: auditId(7), state: "running", approvalExpiresAt: NOW + 60_000 });
   await store.insertAudit(staleRunning, "cleanup-running");
   await store.insertAudit(staleWaiting, "cleanup-waiting");
   await store.insertAudit(active, "cleanup-active");
@@ -139,7 +148,7 @@ test("an atomically claimed hosted audit can execute the isolated checkout fixtu
 
 test("expired awaiting approvals cannot be rotated", async (t) => {
   const { store } = testStore(t);
-  const record = auditRecord({ id: auditId(9), expiresAt: NOW });
+  const record = auditRecord({ id: auditId(9), approvalExpiresAt: NOW });
   await store.insertAudit(record, "expired-rotation");
 
   const rotated = await store.rotateApprovalCapability(record, {
@@ -152,6 +161,140 @@ test("expired awaiting approvals cannot be rotated", async (t) => {
   assert.equal((await store.loadAudit(record.id)).privateApproval.nonceId, "original_nonce_0001");
 });
 
+test("completed signed evidence survives approval expiry until its independent retention boundary", async (t) => {
+  const { store } = testStore(t);
+  const record = auditRecord({
+    id: auditId(10),
+    state: "completed",
+    approvalExpiresAt: NOW - 60_000,
+    retentionUntil: NOW + 30 * 24 * 60 * 60_000,
+  });
+  await store.insertAudit(record, "retained-proof");
+
+  assert.deepEqual(await store.pruneExpiredAudits(NOW), { failed: 0, pruned: 0 });
+  assert.equal((await store.loadAudit(record.id)).state, "completed");
+
+  assert.deepEqual(await store.pruneExpiredAudits(recordRetention(record)), { failed: 0, pruned: 0 });
+  assert.deepEqual(await store.pruneExpiredAudits(recordRetention(record) + 1), { failed: 0, pruned: 1 });
+  assert.equal(await store.loadAudit(record.id), null);
+});
+
+test("audit starts are admitted six times per fixed window and reset exactly at the boundary", async (t) => {
+  const { store, db } = testStore(t);
+  const input = {
+    bucketKey: `audit-start:v1:${HASHES.sessionHash}`,
+    now: NOW,
+    limit: 6,
+    windowMs: 600_000,
+  };
+
+  const admitted = [];
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    admitted.push(await store.consumeAuditStartLimit({ ...input, now: NOW + attempt }));
+  }
+  assert.equal(admitted.every((result) => result.allowed), true);
+
+  const denied = await store.consumeAuditStartLimit({ ...input, now: NOW + 599_999 });
+  assert.deepEqual(denied, { allowed: false, resetAt: NOW + 600_000 });
+  assert.equal((await db.prepare("SELECT request_count FROM audit_start_limits WHERE bucket_key = ?")
+    .bind(input.bucketKey).first()).request_count, 6);
+
+  const reset = await store.consumeAuditStartLimit({ ...input, now: NOW + 600_000 });
+  assert.deepEqual(reset, { allowed: true, resetAt: NOW + 1_200_000 });
+  assert.equal((await db.prepare("SELECT request_count FROM audit_start_limits WHERE bucket_key = ?")
+    .bind(input.bucketKey).first()).request_count, 1);
+});
+
+test("the production global, network, and session policies satisfy the real store contract", async (t) => {
+  const { store } = testStore(t);
+  const request = new Request("https://arena.example/api/audits", {
+    method: "POST",
+    headers: { "cf-connecting-ip": "203.0.113.80" },
+  });
+
+  const admitted = await admitAuditStart({
+    request,
+    sessionHash: HASHES.sessionHash,
+    now: NOW,
+    consume: store.consumeAuditStartLimit,
+  });
+
+  assert.deepEqual(admitted, { allowed: true });
+});
+
+test("one abusive network cannot spend the global allowance with starts rejected by its narrower bucket", async (t) => {
+  const { store } = testStore(t);
+  const abusiveRequest = new Request("https://arena.example/api/audits", {
+    method: "POST",
+    headers: { "cf-connecting-ip": "203.0.113.90" },
+  });
+  const attempts = [];
+  for (let index = 0; index < 120; index += 1) {
+    attempts.push(await admitAuditStart({
+      request: abusiveRequest,
+      sessionHash: await testDigest(`abusive-session-${index}`),
+      now: NOW + index,
+      consume: store.consumeAuditStartLimit,
+    }));
+  }
+  assert.equal(attempts.filter(({ allowed }) => allowed).length, 20);
+  assert.equal(attempts.filter((result) => !result.allowed && result.scope === "network").length, 100);
+
+  const unrelated = await admitAuditStart({
+    request: new Request("https://arena.example/api/audits", {
+      method: "POST",
+      headers: { "cf-connecting-ip": "198.51.100.25" },
+    }),
+    sessionHash: await testDigest("unrelated-session"),
+    now: NOW + 121,
+    consume: store.consumeAuditStartLimit,
+  });
+  assert.deepEqual(unrelated, { allowed: true });
+});
+
+test("concurrent audit starts admit only one remaining slot and keep session buckets isolated", async (t) => {
+  const { store } = testStore(t);
+  const firstBucket = `audit-start:v1:${HASHES.sessionHash}`;
+  const secondBucket = `audit-start:v1:${"Q".repeat(43)}`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    assert.equal((await store.consumeAuditStartLimit({
+      bucketKey: firstBucket,
+      now: NOW + attempt,
+      limit: 6,
+      windowMs: 600_000,
+    })).allowed, true);
+  }
+
+  const racing = await Promise.all(Array.from({ length: 10 }, () => store.consumeAuditStartLimit({
+    bucketKey: firstBucket,
+    now: NOW + 10,
+    limit: 6,
+    windowMs: 600_000,
+  })));
+  assert.equal(racing.filter(({ allowed }) => allowed).length, 1);
+  assert.equal(racing.filter(({ allowed }) => !allowed).length, 9);
+
+  const isolated = await store.consumeAuditStartLimit({
+    bucketKey: secondBucket,
+    now: NOW + 10,
+    limit: 6,
+    windowMs: 600_000,
+  });
+  assert.equal(isolated.allowed, true);
+});
+
+test("audit start limit cleanup prunes expired rows without touching active windows", async (t) => {
+  const { store, db } = testStore(t);
+  await db.prepare("INSERT INTO audit_start_limits (bucket_key, request_count, reset_at) VALUES (?, ?, ?)")
+    .bind("audit-start:v1:expired", 6, NOW - 1).run();
+  await db.prepare("INSERT INTO audit_start_limits (bucket_key, request_count, reset_at) VALUES (?, ?, ?)")
+    .bind("audit-start:v1:active", 2, NOW + 1).run();
+
+  assert.equal(await store.pruneExpiredAuditStartLimits(NOW, 100), 1);
+  assert.equal(await db.prepare("SELECT COUNT(*) AS total FROM audit_start_limits").first().then((row) => row.total), 1);
+  assert.equal((await db.prepare("SELECT bucket_key FROM audit_start_limits").first()).bucket_key, "audit-start:v1:active");
+});
+
 function testStore(t) {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(`CREATE TABLE audits (
@@ -162,10 +305,17 @@ function testStore(t) {
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
+    retention_until INTEGER NOT NULL,
     lease_id TEXT,
     lease_expires_at INTEGER,
     payload TEXT NOT NULL
-  )`);
+  );
+  CREATE TABLE audit_start_limits (
+    bucket_key TEXT PRIMARY KEY NOT NULL,
+    request_count INTEGER NOT NULL CHECK (request_count >= 1),
+    reset_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_audit_start_limits_reset_at ON audit_start_limits(reset_at);`);
   const db = d1Like(sqlite);
   t.after(() => sqlite.close());
   return { db, store: createAuditStore(async () => db) };
@@ -197,7 +347,12 @@ function d1Like(sqlite) {
   };
 }
 
-function auditRecord({ id, state = "awaiting_approval", expiresAt = NOW + 60_000 }) {
+function auditRecord({
+  id,
+  state = "awaiting_approval",
+  approvalExpiresAt = NOW + 60_000,
+  retentionUntil = NOW + 30 * 24 * 60 * 60_000,
+}) {
   const timestamp = new Date(NOW).toISOString();
   return {
     id,
@@ -205,12 +360,17 @@ function auditRecord({ id, state = "awaiting_approval", expiresAt = NOW + 60_000
     state,
     createdAt: timestamp,
     updatedAt: timestamp,
-    expiresAt: new Date(expiresAt).toISOString(),
+    approvalExpiresAt: new Date(approvalExpiresAt).toISOString(),
+    retentionUntil: new Date(retentionUntil).toISOString(),
     review: {
       contractHash: HASHES.contractHash,
       targetHash: HASHES.targetHash,
       toolHash: HASHES.toolHash,
       argumentsHash: HASHES.argumentsHash,
+      releaseHash: HASHES.releaseHash,
+      agentHash: HASHES.agentHash,
+      principalHash: HASHES.principalHash,
+      toolDefinitionHash: HASHES.toolDefinitionHash,
     },
     privateApproval: {
       capabilityHash: HASHES.capabilityHash,
@@ -223,6 +383,10 @@ function auditRecord({ id, state = "awaiting_approval", expiresAt = NOW + 60_000
   };
 }
 
+function recordRetention(record) {
+  return Date.parse(record.retentionUntil);
+}
+
 function setLease(db, id, state, leaseId, leaseExpiresAt) {
   return db.prepare("UPDATE audits SET state = ?, lease_id = ?, lease_expires_at = ? WHERE id = ?")
     .bind(state, leaseId, leaseExpiresAt, id).run();
@@ -230,4 +394,9 @@ function setLease(db, id, state, leaseId, leaseExpiresAt) {
 
 function auditId(value) {
   return `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+}
+
+async function testDigest(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Buffer.from(digest).toString("base64url");
 }

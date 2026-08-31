@@ -1,14 +1,17 @@
 import { createHostedAudit, publicHostedAudit } from "@/src/hosted-audit.js";
 import {
+  admitAuditStart,
   createApprovalCapability,
   ensureAuditSession,
   hashAuditIdempotency,
   sameOriginMutation,
 } from "@/src/audit-capability.js";
 import {
+  consumeAuditStartLimit,
   insertAudit,
   loadAudit,
   loadAuditByIdempotencyKey,
+  pruneExpiredAuditStartLimits,
   pruneExpiredAudits,
   rotateApprovalCapability,
 } from "@/lib/audit-store";
@@ -47,6 +50,21 @@ export async function POST(request: Request) {
       return auditResponse(existing, null, session.setCookie);
     }
 
+    phase = "audit start admission";
+    let admission: { allowed: true } | { allowed: false; resetAt: number; scope: string };
+    try {
+      admission = await admitAuditStart({
+        request,
+        sessionHash: session.sessionHash,
+        now,
+        consume: consumeAuditStartLimit,
+      });
+    } catch (error) {
+      console.error("Arena audit start admission failed closed", error);
+      return unavailableAuditStartResponse(session.setCookie);
+    }
+    if (!admission.allowed) return rateLimitedAuditStartResponse(admission.resetAt, now, session.setCookie, admission.scope);
+
     phase = "approval capability creation";
     const approval = await createApprovalCapability(session.sessionHash);
     phase = "hosted audit preparation";
@@ -70,7 +88,13 @@ export async function POST(request: Request) {
       return auditResponse(existing, replacement.capability, session.setCookie);
     }
     phase = "expired audit cleanup";
-    await pruneExpiredAudits(now);
+    const cleanup = await Promise.allSettled([
+      pruneExpiredAudits(now),
+      pruneExpiredAuditStartLimits(now),
+    ]);
+    for (const result of cleanup) {
+      if (result.status === "rejected") console.warn("Arena background audit cleanup failed", result.reason);
+    }
     return auditResponse(record, approval.capability, session.setCookie, 201);
   } catch (error) {
     console.error(`Arena audit creation failed during ${phase}`, error);
@@ -83,19 +107,46 @@ export async function GET(request: Request) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return Response.json({ error: "a valid audit id is required" }, { status: 400 });
   try {
     const record = await loadAudit(id);
-    return record ? noStore(publicHostedAudit(record)) : Response.json({ error: "audit not found" }, { status: 404 });
+    return record ? noStore(await publicHostedAudit(record)) : Response.json({ error: "audit not found" }, { status: 404 });
   } catch (error) {
     console.error("Arena audit lookup failed", error);
     return Response.json({ error: "Arena could not load the audit" }, { status: 500 });
   }
 }
 
-function auditResponse(record: Record<string, unknown>, approvalCapability: string | null, setCookie: string | null, status = 200) {
+async function auditResponse(record: Record<string, unknown>, approvalCapability: string | null, setCookie: string | null, status = 200) {
   const headers = new Headers({ "cache-control": "no-store", "content-type": "application/json" });
   if (setCookie) headers.set("set-cookie", setCookie);
-  return new Response(JSON.stringify({ audit: publicHostedAudit(record), approvalCapability }), { status, headers });
+  return new Response(JSON.stringify({ audit: await publicHostedAudit(record), approvalCapability }), { status, headers });
 }
 
 function noStore(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "cache-control": "no-store" } });
+}
+
+function rateLimitedAuditStartResponse(resetAt: number, now: number, setCookie: string | null, scope: string) {
+  const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - now) / 1_000));
+  const headers = auditStartHeaders(setCookie);
+  headers.set("retry-after", String(retryAfterSeconds));
+  return new Response(JSON.stringify({
+    error: `audit start limit reached; retry in ${retryAfterSeconds} seconds`,
+    code: "audit_start_rate_limited",
+    retryAfterSeconds,
+    limitScope: scope,
+  }), { status: 429, headers });
+}
+
+function unavailableAuditStartResponse(setCookie: string | null) {
+  const headers = auditStartHeaders(setCookie);
+  headers.set("retry-after", "30");
+  return new Response(JSON.stringify({
+    error: "Arena is temporarily unable to accept new audits",
+    code: "audit_start_temporarily_unavailable",
+  }), { status: 503, headers });
+}
+
+function auditStartHeaders(setCookie: string | null) {
+  const headers = new Headers({ "cache-control": "no-store", "content-type": "application/json" });
+  if (setCookie) headers.set("set-cookie", setCookie);
+  return headers;
 }

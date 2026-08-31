@@ -30,6 +30,8 @@ test("runReleaseCheck accepts the current Arena release contract", async (t) => 
       "webmcp_registration",
       "action_uses_arena",
       "action_runtime_safe",
+      "hosted_d1_schema_authority",
+      "hosted_signing_key_rotation",
       "github_action_example",
       "ci_workflow",
       "release_documents",
@@ -106,6 +108,19 @@ test("runReleaseCheck rejects a missing or weakened CI release gate", async (t) 
   });
 });
 
+test("runReleaseCheck rejects an unwired D1 migration or incomplete signing-key rotation contract", async (t) => {
+  const root = await createReleaseFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await write(root, "drizzle/9999_unwired.sql", "ALTER TABLE audits ADD COLUMN unsafe INTEGER;\n");
+  const readme = await readFile(join(root, "README.md"), "utf8");
+  await write(root, "README.md", readme.replace("Rotate signing keys in two phases", "Rotate signing keys manually"));
+
+  const result = await runReleaseCheck({ root });
+
+  assert.equal(result.checks.find((check) => check.id === "hosted_d1_schema_authority").status, "failed");
+  assert.equal(result.checks.find((check) => check.id === "hosted_signing_key_rotation").status, "failed");
+});
+
 test("the repository satisfies the current Arena release contract", async () => {
   const result = await runReleaseCheck({ root: process.cwd() });
 
@@ -149,7 +164,18 @@ async function createReleaseFixture() {
   };
 
   await write(root, "package.json", JSON.stringify(pkg));
-  await write(root, "README.md", "# Arena\n\nHuman-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>` or `arena test --target`. Static preflight does not prove runtime behavior.\n\n## Current limitations\n");
+  await write(root, "README.md", [
+    "# Arena",
+    "",
+    "Human-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>` or `arena test --target`. Static preflight does not prove runtime behavior.",
+    "",
+    "Portable proofs resolve their signed key ID through `/.well-known/arena-signing-keys.json`.",
+    "Configure `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` with at most 64 retired public Ed25519 JWKs.",
+    "Rotate signing keys in two phases and retain each key through the latest proof `retentionUntil`, for at least 30 days.",
+    "",
+    "## Current limitations",
+    "",
+  ].join("\n"));
   await write(root, "CONTRIBUTING.md", "# Contributing\n\nRequire the exact contract hash. Run `npm test` and `npm run release:check`.\n");
   await write(root, "LICENSE", "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy.\n");
   await write(root, "action.yml", 'Arena WebMCP Preflight bin/arena.js preflight actions/setup-node@v7 node-version: "22" npm ci --ignore-scripts --omit=dev set -euo pipefail ARENA_INPUT_URL\n');
@@ -174,6 +200,8 @@ async function createReleaseFixture() {
   ].join("\n"));
   await write(root, "src/arena-page.js", "document.modelContext.registerTool({ name: 'inspect_boundary_bundle' });\n");
   await write(root, "src/release.js", "export {};\n");
+  await write(root, "db/runtime.ts", "export function createAuditDatabaseProvider() {}\nconst PURGE_INCOMPATIBLE_AUDITS_SQL = \"json_type(payload, '$.retentionUntil') IS NOT 'text'\";\n");
+  await write(root, "next.config.ts", 'source: "/.well-known/arena-signing-keys.json"\n');
   return root;
 }
 
@@ -181,8 +209,8 @@ function releaseSources() {
   return [
     "src/adapter-sdk.js", "src/agent-regression.js", "src/approval-envelope.js", "src/arena-cli.js",
     "src/arena-config.js", "src/arena-page.js", "src/arena-proof.js", "src/behavioral-verifier.js",
-    "src/boundary-audit.js", "src/checkout-audit-adapter.js", "src/checkout-fixture.js", "src/ci-report.js",
-    "src/effect-settlement.js", "src/gym-audit-adapter.js", "src/gym-fixture.js", "src/identity.js",
+    "src/boundary-audit.js", "src/checkout-audit-adapter.js", "src/checkout-fixture.js", "src/checkout-release-artifacts.js", "src/ci-report.js",
+    "src/effect-settlement.js", "src/generated-release-audit.js", "src/gym-audit-adapter.js", "src/gym-fixture.js", "src/identity.js",
     "src/incident-lab.js", "src/mcp.js", "src/measured-audit-service.js", "src/passkey-authenticator.js",
     "src/release.js", "src/safe-fetch.js", "src/scanner.js", "src/secret-envelope.js", "src/skills.js",
     "src/state-store.js", "src/trust.js", "src/util.js", "src/webmcp-tool-definition.js", "src/webmcp-runner.js",

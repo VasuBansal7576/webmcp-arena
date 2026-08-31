@@ -82,6 +82,27 @@ test("bundle verification fails closed on its envelope, identifiers, dates, dige
   }
 });
 
+test("bundle verification rejects a rehashed but impossible event chronology", async () => {
+  const observation = trustedObservation([stateEffect({ amount: 12000, currency: "INR", owner: "human_vasu" })]);
+  const auditor = createBoundaryAuditor({
+    targetHarness: memoryHarness(),
+    routeRunner: memoryRunner({ human: observation, agent: observation }),
+    now: () => new Date("2026-08-30T10:00:00.000Z"),
+    id: sequenceIds(),
+  });
+  const prepared = await auditor.prepare(recipe());
+  const { bundle } = await auditor.run({ planId: prepared.planId, approval: approvalFor(prepared) });
+  const impossible = structuredClone(bundle);
+  impossible.events[0].observedAt = "2099-01-01T00:00:00.000Z";
+  rehashEventChain(impossible.events);
+  rehashBundle(impossible);
+
+  assert.deepEqual(await verifyAuditBundle(impossible), {
+    valid: false,
+    reason: "event_chronology_invalid",
+  });
+});
+
 test("a target harness cannot make the producer emit a verifier-invalid seed commitment", async () => {
   const observation = trustedObservation([stateEffect({ amount: 12000, currency: "INR", owner: "human_vasu" })]);
   const auditor = createBoundaryAuditor({
@@ -1228,6 +1249,16 @@ function sequenceIds() {
 function rehashBundle(bundle) {
   const { bundleHash: _bundleHash, attestation: _attestation, ...body } = bundle;
   bundle.bundleHash = createHash("sha256").update(canonicalTestJson(body)).digest("base64url");
+}
+
+function rehashEventChain(events) {
+  let previousEventHash = null;
+  for (const event of events) {
+    event.previousEventHash = previousEventHash;
+    const { eventHash: _eventHash, ...body } = event;
+    event.eventHash = createHash("sha256").update(canonicalTestJson(body)).digest("base64url");
+    previousEventHash = event.eventHash;
+  }
 }
 
 function canonicalTestJson(value) {

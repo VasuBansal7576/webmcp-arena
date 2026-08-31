@@ -1,5 +1,49 @@
 const CAPABILITY = /^[A-Za-z0-9_-]{32,128}$/;
 const SESSION_COOKIE = "arena_session";
+const AUDIT_START_WINDOW_MS = 10 * 60_000;
+const AUDIT_START_POLICIES = Object.freeze([
+  Object.freeze({ scope: "session", limit: 6 }),
+  Object.freeze({ scope: "network", limit: 20 }),
+  Object.freeze({ scope: "global", limit: 120 }),
+]);
+
+/**
+ * @param {{
+ *   request: Request,
+ *   sessionHash: string,
+ *   now: number,
+ *   consume: (input: { bucketKey: string, now: number, limit: number, windowMs: number, scope: string }) => Promise<{ allowed: boolean, resetAt: number }>
+ * }} input
+ * @returns {Promise<{ allowed: true } | { allowed: false, resetAt: number, scope: string }>}
+ */
+export async function admitAuditStart({ request, sessionHash, now, consume }) {
+  if (!(request instanceof Request) || !isDigest(sessionHash) || !Number.isInteger(now) ||
+      typeof consume !== "function") {
+    throw new TypeError("valid audit-start admission inputs are required");
+  }
+  const ingressIdentity = normalizedIngressIdentity(request);
+  const identities = {
+    global: "all-public-audit-starts",
+    network: ingressIdentity,
+    session: sessionHash,
+  };
+
+  for (const policy of AUDIT_START_POLICIES) {
+    const bucketKey = `audit-start:v1:${await hashMaterial(`arena.audit-start.${policy.scope}.v1\0${identities[policy.scope]}`)}`;
+    const result = await consume({
+      bucketKey,
+      now,
+      limit: policy.limit,
+      windowMs: AUDIT_START_WINDOW_MS,
+      scope: policy.scope,
+    });
+    if (!result?.allowed) {
+      if (!Number.isInteger(result?.resetAt)) throw new Error("audit-start limiter returned an invalid reset boundary");
+      return { allowed: false, resetAt: result.resetAt, scope: policy.scope };
+    }
+  }
+  return { allowed: true };
+}
 
 export async function ensureAuditSession(request) {
   const existing = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
@@ -56,8 +100,7 @@ export function sameOriginMutation(request) {
 
 export async function hashCapability(value) {
   if (typeof value !== "string" || !CAPABILITY.test(value)) throw new Error("invalid capability");
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return base64Url(new Uint8Array(digest));
+  return hashMaterial(value);
 }
 
 export async function hashAuditIdempotency({ sessionHash, version, key }) {
@@ -66,8 +109,7 @@ export async function hashAuditIdempotency({ sessionHash, version, key }) {
     throw new Error("invalid audit idempotency binding");
   }
   const material = `arena.hosted-audit.idempotency.v1\0${sessionHash}\0${version}\0${key}`;
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(material));
-  return base64Url(new Uint8Array(digest));
+  return hashMaterial(material);
 }
 
 export function randomCapability(byteLength = 32) {
@@ -93,6 +135,17 @@ function readCookie(header, name) {
 function serializeSessionCookie(value, requestUrl) {
   const secure = new URL(requestUrl).protocol === "https:" ? "; Secure" : "";
   return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; Max-Age=600; HttpOnly; SameSite=Strict${secure}`;
+}
+
+function normalizedIngressIdentity(request) {
+  const cloudflareIngressIp = request.headers.get("cf-connecting-ip")?.trim();
+  if (!cloudflareIngressIp) return "shared-unattributed-cloudflare-ingress";
+  return cloudflareIngressIp.slice(0, 128).toLowerCase();
+}
+
+async function hashMaterial(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return base64Url(new Uint8Array(digest));
 }
 
 function safeDigestEqual(left, right) {
