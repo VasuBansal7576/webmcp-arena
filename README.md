@@ -147,9 +147,9 @@ The hosted challenge application fails closed unless both members of one verifie
 
 - `ARENA_SIGNING_PRIVATE_JWK`: private JWK JSON, stored as a secret.
 - `ARENA_SIGNING_PUBLIC_JWK`: matching public JWK JSON.
-- `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS`: optional JSON array containing at most 64 retired public Ed25519 JWKs; it becomes required when keys rotate.
+- `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS`: optional JSON array containing at most 64 non-current trusted public Ed25519 JWKs. Despite the compatibility name, the list is used for both a prepublished next key and retired keys; it becomes required when keys rotate.
 
-Rotate signing keys in two phases. First add the current public key to `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` and deploy without changing the active pair. Then deploy the new private/public pair while keeping the retired key in the archive. Retain every retired key through the latest proof `retentionUntil`, and for at least 30 days after the last proof signed by that key. Removing it earlier makes an otherwise intact portable proof unverifiable.
+Rotate signing keys in two phases. First prepublish the next public key in `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` and deploy without changing the active pair. Wait at least the 300-second trust-set cache TTL after that deployment. Then activate the matching new private/public pair while replacing the prepublished entry with the retired previous public key. Retain every retired key through the latest proof `retentionUntil`, and for at least 30 days after the last proof signed by that key. Removing it earlier makes an otherwise intact portable proof unverifiable.
 
 `ARENA_ALLOW_EPHEMERAL_SIGNING=true` is for local development only and must not be enabled in production.
 

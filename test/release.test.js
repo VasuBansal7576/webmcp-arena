@@ -121,6 +121,23 @@ test("runReleaseCheck rejects an unwired D1 migration or incomplete signing-key 
   assert.equal(result.checks.find((check) => check.id === "hosted_signing_key_rotation").status, "failed");
 });
 
+test("runReleaseCheck rejects key rotation guidance that skips next-key prepublication and cache expiry", async (t) => {
+  const root = await createReleaseFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const readme = await readFile(join(root, "README.md"), "utf8");
+  await write(
+    root,
+    "README.md",
+    readme
+      .replace("prepublish the next public key", "archive the current public key")
+      .replace("300-second trust-set cache TTL", "trust-set cache"),
+  );
+
+  const result = await runReleaseCheck({ root });
+
+  assert.equal(result.checks.find((check) => check.id === "hosted_signing_key_rotation").status, "failed");
+});
+
 test("the repository satisfies the current Arena release contract", async () => {
   const result = await runReleaseCheck({ root: process.cwd() });
 
@@ -170,8 +187,8 @@ async function createReleaseFixture() {
     "Human-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>` or `arena test --target`. Static preflight does not prove runtime behavior.",
     "",
     "Portable proofs resolve their signed key ID through `/.well-known/arena-signing-keys.json`.",
-    "Configure `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` with at most 64 retired public Ed25519 JWKs.",
-    "Rotate signing keys in two phases and retain each key through the latest proof `retentionUntil`, for at least 30 days.",
+    "Configure `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` with at most 64 non-current trusted public Ed25519 JWKs.",
+    "Rotate signing keys in two phases: prepublish the next public key, wait through the 300-second trust-set cache TTL, then activate it and retain the retired previous public key through the latest proof `retentionUntil`, for at least 30 days.",
     "",
     "## Current limitations",
     "",

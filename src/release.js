@@ -112,8 +112,11 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
       nextConfig.includes('source: "/.well-known/arena-signing-keys.json"')
         && readme.includes("`/.well-known/arena-signing-keys.json`")
         && readme.includes("`ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS`")
-        && readme.includes("at most 64 retired public Ed25519 JWKs")
+        && readme.includes("at most 64 non-current trusted public Ed25519 JWKs")
         && readme.includes("Rotate signing keys in two phases")
+        && readme.includes("prepublish the next public key")
+        && readme.includes("300-second trust-set cache TTL")
+        && readme.includes("retired previous public key")
         && readme.includes("latest proof `retentionUntil`")
         && readme.includes("at least 30 days"),
       "the hosted release must publish the versioned trust set and document its bounded two-phase key-rotation policy",
