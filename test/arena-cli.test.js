@@ -31,7 +31,7 @@ test("arena init creates a typed adapter, explicit config, and behavioral proof 
   assert.match(await readFile(join(directory, "arena.config.mjs"), "utf8"), /document-sharing/);
   assert.match(await readFile(join(directory, "arena", "document-sharing.adapter.ts"), "utf8"), /defineOwnedTargetAdapter/);
   const workflow = await readFile(join(directory, ".github", "workflows", "arena.yml"), "utf8");
-  assert.match(workflow, /webmcp-arena@v0\.4\.0/);
+  assert.match(workflow, /webmcp-arena@v0\.5\.0/);
   assert.match(workflow, /mode: proof/);
 
   const repeated = await runArenaCli(["init", "--directory", directory]);

@@ -4,6 +4,7 @@ export const ARENA_DOCS = Object.freeze([
   { kind: "tutorial", title: "Quickstart", path: "/docs/quickstart", summary: "Create an adapter and gate a signed proof." },
   { kind: "explanation", title: "The human–agent boundary", path: "/docs/concepts/human-agent-boundary", summary: "Why route parity means security outcomes, not identical clicks." },
   { kind: "reference", title: "WebMCP tools", path: "/docs/reference/webmcp-tools", summary: "Hosted tools, invocation lifecycle, and response contracts." },
+  { kind: "reference", title: "GoogleChromeLabs webmcp-evals", path: "/docs/reference/webmcp-evals", summary: "Import live eval results, recompute trajectories, and join them to behavioral proof." },
   { kind: "reference", title: "Proof format", path: "/docs/reference/proof-format", summary: "Portable envelope and signed callback commitments." },
   { kind: "reference", title: "Error codes", path: "/docs/reference/error-codes", summary: "Stable failure codes and retry behavior." },
   { kind: "use_case", title: "Document sharing", path: "/use-cases/document-sharing", summary: "Catch recipient, visibility, and data-boundary bypasses." },

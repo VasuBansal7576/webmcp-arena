@@ -34,3 +34,13 @@ The hosted proof establishes a registered callback request bound to Arena's page
 - `proof_generation_failed`: retry only after inspecting the failed record.
 
 Canonical docs index: https://webmcp-arena.zippy17.chatgpt.site/api/docs
+
+## GoogleChromeLabs webmcp-evals bridge
+
+Run the model and browser journey with `webmcp-evals`, then ask Arena to recompute the imported calls, inspect Chrome guidance, and verify a behavioral proof:
+
+```bash
+arena eval --evals evals.json --results results.json --tools tools.json --observations observations.json --proof arena-proof.json --format json
+```
+
+An upstream pass count is not trusted. Missing observations or proof produce an inconclusive layer instead of an invented safety claim. Runtime observations must be adapter-, harness-, or backend-derived.

@@ -28,6 +28,7 @@ test("runReleaseCheck accepts the current Arena release contract", async (t) => 
       "release_script",
       "arena_script",
       "webmcp_registration_source",
+      "webmcp_evals_release",
       "action_uses_arena",
       "action_runtime_safe",
       "hosted_d1_schema_authority",
@@ -41,6 +42,18 @@ test("runReleaseCheck accepts the current Arena release contract", async (t) => 
       "dead_guard_absent",
     ],
   );
+});
+
+test("runReleaseCheck rejects an incomplete WebMCP Evals release surface", async (t) => {
+  const root = await createReleaseFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  delete pkg.exports["./webmcp-evals"];
+  await write(root, "package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+
+  const result = await runReleaseCheck({ root });
+
+  assert.equal(result.checks.find((check) => check.id === "webmcp_evals_release").status, "failed");
 });
 
 test("runReleaseCheck rejects obsolete docs, spec files, and the unused WebMCP guard", async (t) => {
@@ -151,13 +164,18 @@ async function createReleaseFixture() {
   const root = await mkdtemp(join(tmpdir(), "arena-release-"));
   const pkg = {
     name: "webmcp-arena",
-    version: "0.4.0",
+    version: "0.5.0",
     license: "MIT",
     repository: { type: "git", url: "git+https://github.com/VasuBansal7576/webmcp-arena.git" },
     homepage: "https://github.com/VasuBansal7576/webmcp-arena#readme",
     bugs: { url: "https://github.com/VasuBansal7576/webmcp-arena/issues" },
     bin: {
       arena: "./bin/arena.js",
+    },
+    exports: {
+      "./adapter-sdk": "./src/adapter-sdk.js",
+      "./proof-gate": "./src/proof-gate.js",
+      "./webmcp-evals": "./src/webmcp-evals.js",
     },
     files: [
       "README.md",
@@ -188,7 +206,7 @@ async function createReleaseFixture() {
   await write(root, "README.md", [
     "# Arena",
     "",
-    "Human-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>` or `arena test --target`. Static preflight does not prove runtime behavior.",
+    "Human-vs-Agent Boundary Audit for WebMCP. The Human-vs-Agent Checkout Proof uses an owned Checkout fixture and `document.modelContext.registerTool`. Run `arena preflight <url>`, `arena test --target`, or `node ./bin/arena.js eval --evals evals.json --results results.json`. Static preflight does not prove runtime behavior.",
     "",
     "Portable proofs resolve their signed key ID through `/.well-known/arena-signing-keys.json`.",
     "Configure `ARENA_SIGNING_ARCHIVED_PUBLIC_JWKS` with at most 64 non-current trusted public Ed25519 JWKs.",
@@ -208,7 +226,15 @@ async function createReleaseFixture() {
   await write(root, "scripts/arena-server.js", "export {};\n");
   await write(root, "scripts/verify-webmcp-native.js", "export {};\n");
   await write(root, "scripts/release-check.js", "export {};\n");
-  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.4.0\nif: always()\n");
+  await write(root, "examples/github-action.yml", "name: Arena\nuses: actions/checkout@v7\nuses: VasuBansal7576/webmcp-arena@v0.5.0\nif: always()\n");
+  await write(root, "examples/webmcp-evals/evals.json", "[]\n");
+  await write(root, "examples/webmcp-evals/results.json", "{}\n");
+  await write(root, "examples/webmcp-evals/tools.json", "[]\n");
+  await write(root, "examples/webmcp-evals/observations.json", "{}\n");
+  await write(root, "app/docs/reference/webmcp-evals/page.tsx", "DocsShell arena eval --evals\n");
+  await write(root, "public/schemas/arena-webmcp-eval-observations-v1.schema.json", JSON.stringify({
+    $id: "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json",
+  }));
   await write(root, ".github/workflows/ci.yml", [
     "name: CI",
     "uses: actions/checkout@v7",
@@ -250,7 +276,7 @@ function releaseSources() {
     "src/effect-settlement.js", "src/generated-release-audit.js", "src/gym-audit-adapter.js", "src/gym-fixture.js", "src/identity.js",
     "src/hosted-audit.js", "src/incident-lab.js", "src/mcp.js", "src/measured-audit-service.js", "src/passkey-authenticator.js", "src/proof-gate.js",
     "src/release.js", "src/safe-fetch.js", "src/scanner.js", "src/secret-envelope.js", "src/skills.js",
-    "src/state-store.js", "src/trust.js", "src/util.js", "src/webmcp-invocation.js", "src/webmcp-tool-definition.js", "src/webmcp-runner.js",
+    "src/state-store.js", "src/trust.js", "src/util.js", "src/webmcp-evals.js", "src/webmcp-invocation.js", "src/webmcp-tool-definition.js", "src/webmcp-runner.js",
   ];
 }
 

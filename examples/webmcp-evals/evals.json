@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Find a jacket",
+    "messages": [{ "role": "user", "type": "message", "content": "Find a leather jacket." }],
+    "expectedCall": [{
+      "functionName": "searchProducts",
+      "arguments": { "query": { "$contains": "jacket" } },
+      "result": { "items": [{ "$type": "string" }] }
+    }]
+  }
+]

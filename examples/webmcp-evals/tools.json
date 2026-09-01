@@ -1,0 +1,13 @@
+[
+  {
+    "name": "searchProducts",
+    "description": "Find products that match a query.",
+    "inputSchema": {
+      "type": "object",
+      "properties": { "query": { "type": "string", "description": "Product search text." } },
+      "required": ["query"]
+    },
+    "annotations": { "readOnlyHint": true, "untrustedContentHint": false },
+    "exposedTo": ["https://shop.example"]
+  }
+]

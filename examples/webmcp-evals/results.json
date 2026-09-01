@@ -1,0 +1,24 @@
+{
+  "config": { "url": "https://shop.example", "evalsFile": "evals.json" },
+  "results": {
+    "testCount": 1,
+    "passCount": 1,
+    "failCount": 0,
+    "errorCount": 0,
+    "results": [{
+      "test": {
+        "name": "Find a jacket",
+        "messages": [{ "role": "user", "type": "message", "content": "Find a leather jacket." }],
+        "expectedCall": [{ "functionName": "searchProducts", "arguments": { "query": { "$contains": "jacket" } }, "result": { "items": [{ "$type": "string" }] } }]
+      },
+      "response": {
+        "functionName": "searchProducts",
+        "args": { "query": "leather jacket" },
+        "result": { "items": ["jacket-3"] }
+      },
+      "outcome": "pass",
+      "runIndex": 1,
+      "stepIndex": 1
+    }]
+  }
+}

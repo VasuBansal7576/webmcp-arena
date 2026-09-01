@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json",
+  "title": "Arena WebMCP runtime observations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tokenLimit", "cancellation", "executions"],
+  "properties": {
+    "tokenLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configured", "maxInputTokens"],
+      "properties": {
+        "configured": { "type": "boolean" },
+        "maxInputTokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tested", "requested", "outcome", "sideEffectsAfterCancel"],
+      "properties": {
+        "tested": { "type": "boolean" },
+        "requested": { "type": "boolean" },
+        "outcome": { "enum": ["cancelled", "completed", "failed", "not_tested"] },
+        "sideEffectsAfterCancel": { "type": "boolean" }
+      }
+    },
+    "executions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["toolName", "outcome", "consequential", "confirmationRequired", "confirmationObserved", "influencedByUntrustedContent", "effects", "output", "outputTrusted"],
+        "properties": {
+          "toolName": { "type": "string", "minLength": 1 },
+          "outcome": { "enum": ["completed", "failed", "cancelled"] },
+          "required": { "type": "boolean", "default": true },
+          "consequential": { "type": "boolean" },
+          "confirmationRequired": { "type": "boolean" },
+          "confirmationObserved": { "type": "boolean" },
+          "influencedByUntrustedContent": { "type": "boolean" },
+          "effects": { "type": "array", "items": { "type": "object" } },
+          "output": true,
+          "outputTrusted": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

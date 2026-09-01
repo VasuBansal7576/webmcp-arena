@@ -105,7 +105,7 @@ The repository also contains a composite GitHub Action; see `examples/github-act
 ## Developer quickstart and docs
 
 ```bash
-npm install --save-dev github:VasuBansal7576/webmcp-arena#v0.4.0
+npm install --save-dev github:VasuBansal7576/webmcp-arena#v0.5.0
 npx arena --help
 npx arena init
 npx arena verify arena-proof.json --require pass
@@ -114,6 +114,22 @@ npx arena verify arena-proof.json --require pass
 `arena init` creates an explicit config, a typed document-sharing adapter scaffold, and a pull-request proof gate without overwriting existing files. The composite Action supports both bounded static preflight and signed behavioral proof mode with SARIF upload.
 
 Human documentation lives at [the Arena docs site](https://webmcp-arena.zippy17.chatgpt.site/docs). Agents can use [`llms.txt`](https://webmcp-arena.zippy17.chatgpt.site/llms.txt), [`llms-full.txt`](https://webmcp-arena.zippy17.chatgpt.site/llms-full.txt), the [JSON docs index](https://webmcp-arena.zippy17.chatgpt.site/api/docs), and the [portable-proof schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json).
+
+## Join WebMCP Evals to behavioral proof
+
+GoogleChromeLabs [`webmcp-evals`](https://github.com/GoogleChromeLabs/webmcp-tools) exercises live model and browser tool selection. Arena imports its JSON report as untrusted evidence, recomputes the expected call trajectory, audits Chrome's tool-security guidance, and verifies a separate signed boundary proof:
+
+```bash
+node ./bin/arena.js eval \
+  --evals examples/webmcp-evals/evals.json \
+  --results examples/webmcp-evals/results.json \
+  --tools examples/webmcp-evals/tools.json \
+  --observations examples/webmcp-evals/observations.json \
+  --proof /path/to/arena-proof.json \
+  --format json
+```
+
+The three layers stay independent: model/tool selection, static and runtime guidance, and verified behavior. A forged upstream pass count cannot turn a mismatched call into a pass. Omitting the Arena proof yields an inconclusive behavioral layer. See the [compatibility reference](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/webmcp-evals) and [observation schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json).
 
 ## Browser-backed owned-target test
 

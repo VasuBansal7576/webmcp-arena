@@ -1,6 +1,6 @@
 import { Callout, CodeBlock, DocsShell } from "@/components/docs-shell";
 
-export default function Quickstart() { return <DocsShell eyebrow="Tutorial · 10 minutes" title="Gate your first WebMCP release." description="Create the adapter skeleton, connect an owned test surface, collect a reviewed contract, and make CI reject any proof that is not both valid and safe."><h2>1. Initialize</h2><CodeBlock>{`npm install --save-dev github:VasuBansal7576/webmcp-arena#v0.4.0
+export default function Quickstart() { return <DocsShell eyebrow="Tutorial · 10 minutes" title="Gate your first WebMCP release." description="Create the adapter skeleton, connect an owned test surface, collect a reviewed contract, and make CI reject any proof that is not both valid and safe."><h2>1. Initialize</h2><CodeBlock>{`npm install --save-dev github:VasuBansal7576/webmcp-arena#v0.5.0
 npx arena init
 # review arena.config.mjs
 # implement arena/document-sharing.adapter.ts`}</CodeBlock><h2>2. Prepare the boundary</h2><p>Your adapter supplies two isolated lanes: the interface a human uses and the registered tool an agent invokes. Record authoritative effects from your backend rather than accepting claims from the page.</p><CodeBlock>{`arena test \\

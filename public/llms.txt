@@ -7,6 +7,7 @@
 - [Quickstart](https://webmcp-arena.zippy17.chatgpt.site/docs/quickstart): Initialize an adapter and gate a proof.
 - [Human–agent boundary](https://webmcp-arena.zippy17.chatgpt.site/docs/concepts/human-agent-boundary): Trust model and claim limits.
 - [WebMCP tools](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/webmcp-tools): Hosted tool lifecycle and compact agent responses.
+- [WebMCP Evals compatibility](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/webmcp-evals): Recompute GoogleChromeLabs eval results and join them to behavioral proof.
 - [Proof format](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/proof-format): Portable envelope, callback receipt, and verification order.
 - [Error codes](https://webmcp-arena.zippy17.chatgpt.site/docs/reference/error-codes): Stable codes and retry behavior.
 
@@ -14,6 +15,7 @@
 
 - [Documentation index](https://webmcp-arena.zippy17.chatgpt.site/api/docs)
 - [Proof JSON Schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json)
+- [Runtime-observation JSON Schema](https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json)
 - [Full agent context](https://webmcp-arena.zippy17.chatgpt.site/llms-full.txt)
 - [Signing keys](https://webmcp-arena.zippy17.chatgpt.site/.well-known/arena-signing-keys.json)
 

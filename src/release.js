@@ -36,6 +36,7 @@ const RELEASE_SOURCES = [
   "src/util.js",
   "src/webmcp-tool-definition.js",
   "src/webmcp-invocation.js",
+  "src/webmcp-evals.js",
   "src/webmcp-runner.js",
 ];
 
@@ -87,10 +88,18 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
     exists(root, "scripts/solo-server.js"),
   ])).some(Boolean);
   const retiredSourcePresent = (await Promise.all(RETIRED_SOURCES.map((path) => exists(root, path)))).some(Boolean);
+  const evalArtifactsPresent = (await Promise.all([
+    "examples/webmcp-evals/evals.json",
+    "examples/webmcp-evals/results.json",
+    "examples/webmcp-evals/tools.json",
+    "examples/webmcp-evals/observations.json",
+  ].map((path) => exists(root, path)))).every(Boolean);
+  const evalDocs = await text(root, "app/docs/reference/webmcp-evals/page.tsx");
+  const evalObservationSchema = await json(root, "public/schemas/arena-webmcp-eval-observations-v1.schema.json");
   const unwiredD1ArtifactsPresent = await containsFiles(root, "drizzle");
   const packageFilesExact = JSON.stringify([...(pkg.files || [])].sort()) === JSON.stringify([...requiredPackageFiles].sort());
   const checks = [
-    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.4.0", "package must use the WebMCP Arena release identity"),
+    check("package_identity", pkg.name === "webmcp-arena" && pkg.version === "0.5.0", "package must use the WebMCP Arena release identity"),
     check("package_publishable", pkg.private !== true && pkg.license && pkg.license !== "UNLICENSED", "package must be publishable and licensed"),
     check("package_metadata", pkg.repository?.url === "git+https://github.com/VasuBansal7576/webmcp-arena.git" && pkg.homepage === "https://github.com/VasuBansal7576/webmcp-arena#readme" && pkg.bugs?.url === "https://github.com/VasuBansal7576/webmcp-arena/issues", "package must point to the public WebMCP Arena repository, homepage, and issue tracker"),
     check("arena_cli", pkg.bin?.arena === "./bin/arena.js" && await exists(root, "bin/arena.js"), "package bin must expose the Arena CLI"),
@@ -107,6 +116,16 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
         && arenaPage.includes("registerTool")
         && hostedPage.includes("document.modelContext.registerTool"),
       "the local and hosted Arena source must contain document.modelContext registrations; native-browser verification remains an explicit opt-in check",
+    ),
+    check(
+      "webmcp_evals_release",
+      pkg.exports?.["./webmcp-evals"] === "./src/webmcp-evals.js"
+        && pkg.files?.includes("src/webmcp-evals.js")
+        && evalArtifactsPresent
+        && evalDocs.includes("arena eval")
+        && readme.includes("arena.js eval")
+        && evalObservationSchema?.$id === "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json",
+      "the release must export the eval bridge and ship tested examples, human docs, agent docs, and its observation schema",
     ),
     check("action_uses_arena", action.includes("Arena WebMCP Boundary Gate") && action.includes("bin/arena.js") && action.includes("preflight") && action.includes("verify") && !action.includes("bin/agent-contract.js"), "composite action must run Arena preflight and signed proof-gate modes"),
     check("action_runtime_safe", action.includes("actions/setup-node@v7") && action.includes('node-version: "22"') && action.includes("npm ci --ignore-scripts --omit=dev") && action.includes("set -euo pipefail") && action.includes("ARENA_INPUT_URL") && !action.includes('args=("${{ inputs.url }}"'), "composite action must select Node 22 on a current action runtime, install runtime dependencies, preserve pipeline failures, and pass inputs through the environment"),
@@ -143,7 +162,7 @@ export async function runReleaseCheck({ root = process.cwd() } = {}) {
         && nextConfig.includes('camera=(), geolocation=(), microphone=(), payment=()'),
       "the deployed Vinext root and descendant response paths must deny framing and emit the reviewed browser security headers",
     ),
-    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: actions/checkout@v7") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.4.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the current checkout action, versioned Arena action, and retain reports when inspection fails"),
+    check("github_action_example", await exists(root, "examples/github-action.yml") && (await text(root, "examples/github-action.yml")).includes("uses: actions/checkout@v7") && (await text(root, "examples/github-action.yml")).includes("uses: VasuBansal7576/webmcp-arena@v0.5.0") && (await text(root, "examples/github-action.yml")).includes("if: always()"), "example workflow must use the current checkout action, versioned Arena action, and retain reports when inspection fails"),
     check(
       "ci_workflow",
       ciWorkflow.includes("actions/checkout@v7")
@@ -186,6 +205,14 @@ async function exists(root, path) {
 
 function text(root, path) {
   return readFile(join(root, path), "utf8").catch(() => "");
+}
+
+async function json(root, path) {
+  try {
+    return JSON.parse(await readFile(join(root, path), "utf8"));
+  } catch {
+    return null;
+  }
 }
 
 async function containsFiles(root, path) {

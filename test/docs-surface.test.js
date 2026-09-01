@@ -11,6 +11,7 @@ test("the docs separate tutorial, explanation, reference, use cases, and essays"
     "app/docs/concepts/human-agent-boundary/page.tsx",
     "app/docs/reference/proof-format/page.tsx",
     "app/docs/reference/webmcp-tools/page.tsx",
+    "app/docs/reference/webmcp-evals/page.tsx",
     "app/docs/reference/error-codes/page.tsx",
     "app/use-cases/page.tsx",
     "app/use-cases/document-sharing/page.tsx",
@@ -29,6 +30,7 @@ test("agents receive a concise index, full context, schemas, and stable error vo
   const llms = await readFile(new URL("public/llms.txt", root), "utf8");
   const full = await readFile(new URL("public/llms-full.txt", root), "utf8");
   const schema = JSON.parse(await readFile(new URL("public/schemas/arena-proof-v1.schema.json", root), "utf8"));
+  const observationSchema = JSON.parse(await readFile(new URL("public/schemas/arena-webmcp-eval-observations-v1.schema.json", root), "utf8"));
   const catalog = await readFile(new URL("src/docs-catalog.js", root), "utf8");
 
   assert.match(llms, /https:\/\/webmcp-arena\.zippy17\.chatgpt\.site\/docs\/quickstart/);
@@ -36,6 +38,11 @@ test("agents receive a concise index, full context, schemas, and stable error vo
   assert.match(full, /registered WebMCP callback/);
   assert.equal(schema.$id, "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-proof-v1.schema.json");
   assert.deepEqual(schema.required.includes("evidence"), true);
+  assert.equal(observationSchema.$id, "https://webmcp-arena.zippy17.chatgpt.site/schemas/arena-webmcp-eval-observations-v1.schema.json");
+  assert.match(llms, /\/docs\/reference\/webmcp-evals/);
+  assert.match(llms, /arena-webmcp-eval-observations-v1\.schema\.json/);
+  assert.match(full, /arena eval --evals/);
+  assert.match(catalog, /GoogleChromeLabs webmcp-evals/);
   assert.match(catalog, /invocation_binding_mismatch/);
   assert.match(catalog, /invocation_already_consumed/);
 });

@@ -1,0 +1,16 @@
+{
+  "tokenLimit": { "configured": true, "maxInputTokens": 4096 },
+  "cancellation": { "tested": true, "requested": true, "outcome": "cancelled", "sideEffectsAfterCancel": false },
+  "executions": [{
+    "toolName": "searchProducts",
+    "outcome": "completed",
+    "required": true,
+    "consequential": false,
+    "confirmationRequired": false,
+    "confirmationObserved": false,
+    "influencedByUntrustedContent": false,
+    "effects": [],
+    "output": { "items": ["jacket-3"] },
+    "outputTrusted": true
+  }]
+}

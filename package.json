@@ -1,6 +1,6 @@
 {
   "name": "webmcp-arena",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Arena: behavioral verification, delegated authority, and verifiable proof for WebMCP tools.",
   "type": "module",
   "repository": {
@@ -16,7 +16,8 @@
   },
   "exports": {
     "./adapter-sdk": "./src/adapter-sdk.js",
-    "./proof-gate": "./src/proof-gate.js"
+    "./proof-gate": "./src/proof-gate.js",
+    "./webmcp-evals": "./src/webmcp-evals.js"
   },
   "files": [
     "README.md",
@@ -64,6 +65,7 @@
     "src/util.js",
     "src/webmcp-tool-definition.js",
     "src/webmcp-invocation.js",
+    "src/webmcp-evals.js",
     "src/webmcp-runner.js"
   ],
   "scripts": {

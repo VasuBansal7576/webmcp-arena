@@ -10,6 +10,7 @@ import { createIncidentLab } from "./incident-lab.js";
 import { scanUrl } from "./scanner.js";
 import { createWebMcpBrowserRunner } from "./webmcp-runner.js";
 import { verifyPortableProof } from "./proof-gate.js";
+import { createWebMcpEvalBridge } from "./webmcp-evals.js";
 
 const TEST_OPTIONS = new Set([
   "target",
@@ -25,6 +26,7 @@ const DEMO_OPTIONS = new Set(["scenario", "version", "mode", "format"]);
 const PREFLIGHT_OPTIONS = new Set(["mcp", "openapi", "agent_skills", "allow_private_targets", "format"]);
 const INIT_OPTIONS = new Set(["directory"]);
 const VERIFY_OPTIONS = new Set(["require", "format"]);
+const EVAL_OPTIONS = new Set(["evals", "results", "tools", "observations", "proof", "format"]);
 const CONTRACT_HASH = /^[A-Za-z0-9_-]{43}$/;
 const REDACTION_KEY_LABEL = "arena.cli.redaction-key.v1";
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -38,6 +40,7 @@ export async function runArenaCli(argv = [], overrides = {}) {
     createLab: createIncidentLab,
     scanUrl,
     verifyProof: verifyPortableProof,
+    createEvalBridge: createWebMcpEvalBridge,
     now: () => new Date(),
     ...overrides,
   };
@@ -47,6 +50,7 @@ export async function runArenaCli(argv = [], overrides = {}) {
     if (command === "help" || command === "--help" || command === "-h") return helpResult();
     if (command === "init") return await runInit(tokens);
     if (command === "verify") return await runVerify(tokens, dependencies);
+    if (command === "eval") return await runEval(tokens, dependencies);
     if (command === "demo") return runDemo(tokens, dependencies);
     if (command === "preflight") return await runPreflight(tokens, dependencies);
     if (command !== "test") return errorResult(`unknown command: ${command}`, outputFormat);
@@ -138,6 +142,7 @@ Usage:
   arena preflight URL [--mcp URL] [--openapi URL]
   arena test --target URL --fixture-token TOKEN --browser-executable PATH --browser-mode native
   arena verify PROOF.json [--require pass|fail]
+  arena eval --evals FILE --results FILE [--tools FILE] [--observations FILE] [--proof FILE]
   arena demo [--scenario gym_waitlist] [--version vulnerable|fixed]
 
 Start with “arena init”, then review the generated adapter and workflow.
@@ -145,6 +150,32 @@ Docs: https://webmcp-arena.zippy17.chatgpt.site/docs/quickstart
 `,
     stderr: "",
   };
+}
+
+async function runEval(tokens, dependencies) {
+  const options = parseOptions(tokens, EVAL_OPTIONS);
+  if (!options.evals) throw new Error("arena eval requires --evals");
+  if (!options.results) throw new Error("arena eval requires --results");
+  const format = options.format || "json";
+  if (!new Set(["json", "sarif", "junit"]).has(format)) throw new Error("--format must be json, sarif, or junit");
+  // Read in command-line order so malformed-input errors stay deterministic.
+  const suite = await readJsonInput(options.evals, "evals file");
+  const upstreamReport = await readJsonInput(options.results, "results file");
+  const tools = options.tools ? await readJsonInput(options.tools, "tools file") : undefined;
+  const observations = options.observations ? await readJsonInput(options.observations, "observations file") : undefined;
+  const behavioralProof = options.proof ? await readJsonInput(options.proof, "proof file") : undefined;
+  const bridge = dependencies.createEvalBridge({ verifyProof: dependencies.verifyProof });
+  const report = await bridge.audit({ suite, upstreamReport, tools, observations, behavioralProof });
+  const exitCode = report.verdict === "pass" ? 0 : report.verdict === "fail" ? 1 : 2;
+  return render({ exitCode, format, report });
+}
+
+async function readJsonInput(path, label) {
+  try {
+    return JSON.parse(await readFile(resolve(path), "utf8"));
+  } catch {
+    throw new Error(`${label} is not readable JSON`);
+  }
 }
 
 async function runInit(tokens) {
@@ -193,7 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: VasuBansal7576/webmcp-arena@v0.4.0
+      - uses: VasuBansal7576/webmcp-arena@v0.5.0
         with:
           mode: proof
           proof: arena-proof.json
@@ -684,7 +715,7 @@ function ciReport(report) {
     inconclusive_reasons: report.inconclusive_reasons,
     findings: findings.map((finding) => ({
       code: finding.code,
-      severity: severityFor(finding.code),
+      severity: finding.severity || severityFor(finding.code),
       title: finding.message || finding.code,
       root_cause: finding.message || finding.code,
       recommended_repair: "Review the paired evidence bundle and restore the human-route security outcome.",
