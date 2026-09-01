@@ -24,6 +24,8 @@ test("the docs separate tutorial, explanation, reference, use cases, and essays"
     assert.match(source, /DocsShell/);
     assert.doesNotMatch(source, /lorem ipsum|TODO|coming soon/i);
   }
+  const shell = await readFile(new URL("components/docs-shell.tsx", root), "utf8");
+  assert.match(shell, /href="\/docs\/reference\/webmcp-evals"/);
 });
 
 test("agents receive a concise index, full context, schemas, and stable error vocabulary", async () => {
